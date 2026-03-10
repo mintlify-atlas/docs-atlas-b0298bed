@@ -1,0 +1,146 @@
+{
+  "projectType": "ai-ml",
+  "projectName": "QC - Quasi Quantum Computing",
+  "projectDescription": "Functional quasi-quantum computing simulator on classical hardware using neural network physics backends.",
+  "theme": "aspen",
+  "primaryColor": "#f6be31",
+  "lightColor": "#7c531c",
+  "darkColor": "#040404",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "installation",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/neural-backends",
+              "concepts/quantum-circuits",
+              "concepts/state-representation",
+              "concepts/constraint-preservation"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/quantum-algorithms",
+              "guides/molecular-simulation",
+              "guides/vqe-uccsd",
+              "guides/visualization",
+              "guides/stark-effect",
+              "guides/relativistic-hydrogen"
+            ]
+          },
+          {
+            "group": "Advanced",
+            "pages": [
+              "advanced/qed-corrections",
+              "advanced/polyatomic-molecules",
+              "advanced/entanglement-analysis",
+              "advanced/topology"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Core Classes",
+            "pages": [
+              "api/quantum-computer",
+              "api/quantum-circuit",
+              "api/hilbert-state"
+            ]
+          },
+          {
+            "group": "Physics Backends",
+            "pages": [
+              "api/hamiltonian-backend",
+              "api/schrodinger-backend",
+              "api/dirac-backend"
+            ]
+          },
+          {
+            "group": "Quantum Gates",
+            "pages": [
+              "api/single-qubit-gates",
+              "api/two-qubit-gates",
+              "api/rotation-gates"
+            ]
+          },
+          {
+            "group": "Molecular Simulation",
+            "pages": [
+              "api/molecular-simulator",
+              "api/vqe",
+              "api/orbital-visualizer"
+            ]
+          },
+          {
+            "group": "Utilities",
+            "pages": [
+              "api/measurement",
+              "api/configuration"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Research",
+        "groups": [
+          {
+            "group": "Papers",
+            "pages": [
+              "research/constraint-preservation",
+              "research/extended-capabilities",
+              "research/results"
+            ]
+          },
+          {
+            "group": "Experiments",
+            "pages": [
+              "research/phase-coherence",
+              "research/polarizability",
+              "research/benchmarks"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Three independent neural backends (Hamiltonian, Schrödinger, Dirac)",
+    "Quantum circuit simulation with entanglement support",
+    "Molecular VQE and UCCSD calculations",
+    "Stark effect and electric polarizability calculations",
+    "Relativistic hydrogen with Dirac equation",
+    "Atomic orbital visualization with Monte Carlo sampling",
+    "QED corrections (Lamb shift, anomalous magnetic moment)",
+    "Constraint preservation (phase coherence, norm, entropy)"
+  ],
+  "publicApiSurface": [
+    "QuantumComputer",
+    "QuantumCircuit",
+    "JointHilbertState",
+    "HamiltonianBackend",
+    "SchrodingerBackend",
+    "DiracBackend",
+    "MolecularSimulator",
+    "QuantumGates (H, X, Y, Z, CNOT, CZ, SWAP, RX, RY, RZ)",
+    "quantum_computer.py",
+    "quantum_simulator.py",
+    "molecular_sim.py",
+    "entangled_hydrogen.py",
+    "relativistic_hydrogen.py",
+    "quantum_visualizer.py"
+  ]
+}
