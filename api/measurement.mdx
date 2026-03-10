@@ -1,0 +1,457 @@
+---
+title: "Measurement"
+description: "Non-destructive quantum measurement with Born rule probabilities and state analysis"
+---
+
+## Overview
+
+Non-destructive measurement functions that extract probability distributions and observables from quantum states without collapsing the wavefunction.
+
+## Classes
+
+### MeasurementResult
+
+Complete measurement outcome for an n-qubit system.
+
+**Location:** `quantum_computer.py`
+
+**Constructor:**
+```python
+@dataclass
+class MeasurementResult:
+    full_distribution: Dict[str, float]
+    marginal_p1: Dict[int, float]
+    bloch_vectors: Dict[int, Tuple[float, float, float]]
+    n_qubits: int
+```
+
+**Attributes:**
+- `full_distribution`: Probability for each computational basis state
+  - Keys: Bitstrings (e.g., "00", "01", "10", "11")
+  - Values: Born probabilities P(|ψ⟩) ∈ [0, 1]
+  - Sum of all values = 1.0
+
+- `marginal_p1`: Single-qubit marginal probabilities
+  - Keys: Qubit indices (0, 1, ..., n-1)
+  - Values: P(qubit = |1⟩) ∈ [0, 1]
+
+- `bloch_vectors`: Reduced density matrix Bloch vectors
+  - Keys: Qubit indices
+  - Values: (bx, by, bz) tuples with |b| ≤ 1.0
+
+- `n_qubits`: Number of qubits in the system
+
+**Methods:**
+
+#### probabilities
+
+```python
+@property
+def probabilities(self) -> Dict[int, float]
+```
+
+Alias for `marginal_p1`. Returns per-qubit P(|1⟩).
+
+#### most_probable_bitstring()
+
+```python
+def most_probable_bitstring(self) -> str
+```
+
+Return bitstring with highest probability.
+
+**Returns:** String like "1011" (4 qubits)
+
+**Example:**
+```python
+result = qc.run(circuit)
+most_likely = result.most_probable_bitstring()
+print(f"Most probable state: |{most_likely}>")
+print(f"Probability: {result.full_distribution[most_likely]:.4f}")
+```
+
+#### expectation_z()
+
+```python
+def expectation_z(qubit: int) -> float
+```
+
+Compute ⟨Z⟩ expectation value for a qubit.
+
+**Parameters:**
+- `qubit`: Qubit index (0 to n-1)
+
+**Returns:** ⟨Z⟩ = P(|0⟩) - P(|1⟩) ∈ [-1, +1]
+
+**Example:**
+```python
+for i in range(result.n_qubits):
+    z_exp = result.expectation_z(i)
+    print(f"Qubit {i}: <Z> = {z_exp:+.4f}")
+```
+
+#### entropy()
+
+```python
+def entropy(self) -> float
+```
+
+Compute Shannon entropy of the full probability distribution.
+
+**Formula:**
+$$
+H = -\sum_i P_i \log_2(P_i)
+$$
+
+**Returns:** Entropy in bits (0 for pure state, log₂(2ⁿ) for maximally mixed)
+
+**Example:**
+```python
+entropy = result.entropy()
+max_entropy = result.n_qubits  # log₂(2^n)
+print(f"Entropy: {entropy:.4f} / {max_entropy} bits")
+if entropy < 0.01:
+    print("State is nearly pure")
+elif entropy > max_entropy - 0.1:
+    print("State is maximally mixed")
+```
+
+#### __repr__()
+
+Human-readable summary.
+
+**Output format:**
+```
+MeasurementResult (2 qubits)
+  Most probable: |00>  P=0.5012
+  Shannon entropy: 0.9998 bits
+  Top states:
+    |00>  P=0.5012
+    |11>  P=0.4988
+  Per-qubit marginals:
+    q0: P(|1>)=0.4988  <Z>=+0.0024  Bloch=(+0.001,-0.002,+0.002)
+    q1: P(|1>)=0.4988  <Z>=+0.0024  Bloch=(+0.001,-0.002,+0.002)
+```
+
+## Measurement Functions
+
+### QuantumComputer.run()
+
+```python
+def run(
+    circuit: QuantumCircuit,
+    backend: str = "schrodinger",
+    initial_states: Optional[Dict[int, str]] = None
+) -> MeasurementResult
+```
+
+Execute circuit and return measurement results.
+
+**Parameters:**
+- `circuit`: Quantum circuit to execute
+- `backend`: Physics backend ("hamiltonian", "schrodinger", "dirac")
+- `initial_states`: Optional initial qubit states (default all |0⟩)
+
+**Returns:** `MeasurementResult` with full probability distribution
+
+**Example:**
+```python
+from quantum_computer import QuantumComputer, QuantumCircuit, SimulatorConfig
+
+config = SimulatorConfig(device="cpu")
+qc = QuantumComputer(config)
+
+# Create Bell state
+circuit = QuantumCircuit(2)
+circuit.h(0)
+circuit.cnot(0, 1)
+
+# Measure (non-destructive)
+result = qc.run(circuit, backend="schrodinger")
+
+print(f"P(|00>) = {result.full_distribution['00']:.4f}")
+print(f"P(|11>) = {result.full_distribution['11']:.4f}")
+print(f"Entropy: {result.entropy():.4f} bits")
+```
+
+### JointHilbertState Methods
+
+Direct state measurement without circuit execution.
+
+#### probabilities()
+
+```python
+def probabilities(self) -> torch.Tensor
+```
+
+Compute Born rule probabilities for all basis states.
+
+**Returns:** Tensor of shape `(2^n,)` with P(k) for each basis state k
+
+**Formula:**
+$$
+P(k) = \int |\alpha_k(x,y)|^2 \, dx dy = \sum_{x,y} (\text{Re}[\alpha_k]^2 + \text{Im}[\alpha_k]^2)
+$$
+
+**Example:**
+```python
+state = qc._factory.all_zeros(3)
+probs = state.probabilities()
+for k in range(8):
+    bitstring = format(k, '03b')
+    print(f"P(|{bitstring}>) = {probs[k]:.6f}")
+```
+
+#### marginal_probability_one()
+
+```python
+def marginal_probability_one(qubit: int) -> float
+```
+
+Compute P(qubit = |1⟩) by tracing out all other qubits.
+
+**Parameters:**
+- `qubit`: Qubit index (0 to n-1)
+
+**Returns:** Probability ∈ [0, 1]
+
+**Example:**
+```python
+for i in range(state.n_qubits):
+    p1 = state.marginal_probability_one(i)
+    print(f"Qubit {i}: P(|1>) = {p1:.4f}, P(|0>) = {1-p1:.4f}")
+```
+
+#### bloch_vector()
+
+```python
+def bloch_vector(qubit: int) -> Tuple[float, float, float]
+```
+
+Compute Bloch sphere coordinates for a single qubit.
+
+**Parameters:**
+- `qubit`: Qubit index
+
+**Returns:** `(bx, by, bz)` with:
+- `bx = 2 Re(ρ₀₁)`: X-axis projection
+- `by = -2 Im(ρ₀₁)`: Y-axis projection  
+- `bz = P(|0⟩) - P(|1⟩)`: Z-axis projection
+- Constraint: `bx² + by² + bz² ≤ 1`
+
+**Example:**
+```python
+bx, by, bz = state.bloch_vector(0)
+radius = (bx**2 + by**2 + bz**2)**0.5
+print(f"Bloch vector: ({bx:.3f}, {by:.3f}, {bz:.3f})")
+print(f"Purity: {radius:.3f} (1.0 = pure, 0.0 = maximally mixed)")
+```
+
+#### most_probable_basis_state()
+
+```python
+def most_probable_basis_state(self) -> int
+```
+
+Return index k with highest probability.
+
+**Returns:** Integer index ∈ [0, 2ⁿ-1]
+
+**Example:**
+```python
+k = state.most_probable_basis_state()
+bitstring = format(k, f'0{state.n_qubits}b')
+prob = state.probabilities()[k]
+print(f"Most probable: |{bitstring}> with P={prob:.4f}")
+```
+
+## Measurement Output Format
+
+### Full Distribution
+
+Dictionary mapping bitstrings to probabilities:
+
+```python
+result.full_distribution = {
+    "00": 0.5012,  # |00⟩
+    "01": 0.0001,  # |01⟩
+    "10": 0.0001,  # |10⟩
+    "11": 0.4986   # |11⟩
+}
+```
+
+### Marginal Probabilities
+
+Per-qubit P(|1⟩) values:
+
+```python
+result.marginal_p1 = {
+    0: 0.4987,  # Qubit 0
+    1: 0.4987   # Qubit 1
+}
+```
+
+### Bloch Vectors
+
+Reduced density matrix representation:
+
+```python
+result.bloch_vectors = {
+    0: (+0.001, -0.002, +0.002),  # (bx, by, bz) for qubit 0
+    1: (+0.001, -0.002, +0.002)   # (bx, by, bz) for qubit 1
+}
+```
+
+## Example Usage
+
+### Bell State Measurement
+
+```python
+from quantum_computer import QuantumComputer, QuantumCircuit, SimulatorConfig
+
+config = SimulatorConfig()
+qc = QuantumComputer(config)
+
+# Create Bell state
+circuit = QuantumCircuit(2)
+circuit.h(0)
+circuit.cnot(0, 1)
+
+result = qc.run(circuit)
+
+print("Full distribution:")
+for bitstring, prob in sorted(result.full_distribution.items()):
+    if prob > 0.01:
+        print(f"  |{bitstring}> : {prob:.4f}")
+
+print(f"\nEntropy: {result.entropy():.4f} bits")
+print(f"Max entropy (2 qubits): {2.0:.4f} bits")
+
+for i in range(2):
+    bx, by, bz = result.bloch_vectors[i]
+    print(f"\nQubit {i}:")
+    print(f"  P(|1>): {result.marginal_p1[i]:.4f}")
+    print(f"  <Z>: {result.expectation_z(i):+.4f}")
+    print(f"  Bloch: ({bx:+.3f}, {by:+.3f}, {bz:+.3f})")
+```
+
+**Expected output:**
+```
+Full distribution:
+  |00> : 0.5000
+  |11> : 0.5000
+
+Entropy: 1.0000 bits
+Max entropy (2 qubits): 2.0000 bits
+
+Qubit 0:
+  P(|1>): 0.5000
+  <Z>: +0.0000
+  Bloch: (+0.000, +0.000, +0.000)
+
+Qubit 1:
+  P(|1>): 0.5000
+  <Z>: +0.0000
+  Bloch: (+0.000, +0.000, +0.000)
+```
+
+### GHZ State Measurement
+
+```python
+circuit = QuantumCircuit(3)
+circuit.h(0)
+circuit.cnot(0, 1)
+circuit.cnot(1, 2)
+
+result = qc.run(circuit)
+
+print(f"Most probable: |{result.most_probable_bitstring()}>")
+print(f"Probability: {result.full_distribution[result.most_probable_bitstring()]:.4f}")
+print(f"\nEntropy: {result.entropy():.4f} bits")
+
+# Check entanglement
+entropy_max = result.n_qubits
+if result.entropy() > 0.9 and result.entropy() < entropy_max:
+    print("State is entangled (partial entropy)")
+```
+
+### Custom Analysis
+
+```python
+def analyze_state(result: MeasurementResult) -> None:
+    """Analyze measurement result properties."""
+    
+    # Purity from entropy
+    entropy = result.entropy()
+    max_entropy = result.n_qubits
+    purity_measure = 1.0 - entropy / max_entropy
+    
+    print(f"State Analysis ({result.n_qubits} qubits):")
+    print(f"  Entropy: {entropy:.4f} / {max_entropy:.4f} bits")
+    print(f"  Purity metric: {purity_measure:.4f}")
+    
+    # Entanglement detection (heuristic)
+    single_qubit_entropy = sum(
+        -p * np.log2(p) - (1-p) * np.log2(1-p) 
+        for p in result.marginal_p1.values() 
+        if 1e-10 < p < 1-1e-10
+    )
+    
+    if entropy > single_qubit_entropy + 0.1:
+        print("  Likely entangled (H_total > H_single)")
+    else:
+        print("  Likely separable")
+    
+    # Most probable states
+    top_states = sorted(
+        result.full_distribution.items(),
+        key=lambda x: -x[1]
+    )[:3]
+    
+    print("\n  Top 3 states:")
+    for bitstring, prob in top_states:
+        print(f"    |{bitstring}>  P={prob:.4f}")
+    
+    # Per-qubit statistics
+    print("\n  Per-qubit:")
+    for i in range(result.n_qubits):
+        p1 = result.marginal_p1[i]
+        z_exp = result.expectation_z(i)
+        bx, by, bz = result.bloch_vectors[i]
+        purity = (bx**2 + by**2 + bz**2)**0.5
+        print(f"    q{i}: P(|1>)={p1:.3f}, <Z>={z_exp:+.3f}, purity={purity:.3f}")
+
+# Usage
+result = qc.run(circuit)
+analyze_state(result)
+```
+
+## Notes
+
+### Non-Destructive Measurement
+
+All measurement functions read the quantum state without modifying it. The state remains intact after measurement, allowing:
+
+- Multiple measurements of the same state
+- Sequential analysis with different observables
+- State inspection during circuit debugging
+
+### Bit Ordering Convention
+
+Bitstrings use MSB-first convention:
+- Qubit 0 is the leftmost bit (most significant)
+- Qubit n-1 is the rightmost bit (least significant)
+
+**Example:** For 3 qubits, `"101"` means:
+- Qubit 0: |1⟩
+- Qubit 1: |0⟩
+- Qubit 2: |1⟩
+
+### Floating-Point Precision
+
+Probabilities may not sum to exactly 1.0 due to:
+- Finite grid resolution (16×16 default)
+- Numerical integration errors
+- Neural network approximation
+
+Typical deviation: < 1e-6 for well-conditioned states

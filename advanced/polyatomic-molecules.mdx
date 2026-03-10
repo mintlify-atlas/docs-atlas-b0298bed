@@ -1,0 +1,368 @@
+---
+title: 'Polyatomic Molecules'
+description: 'Simulation of H₂O, NH₃, and CH₄ using the neural quantum framework'
+icon: 'flask'
+---
+
+## Overview
+
+The QC framework extends beyond diatomic molecules to support polyatomic systems including water (H₂O), ammonia (NH₃), and methane (CH₄). The same pipeline that handles H₂ scales naturally to larger molecular systems.
+
+<Note>
+Polyatomic molecules are processed through PySCF for reference data. VQE optimization is limited by classical FCI cost scaling beyond ~10 orbitals.
+</Note>
+
+## Supported Molecules
+
+### Water (H₂O)
+
+Water is the primary test case for polyatomic support.
+
+**System Parameters:**
+- **Electrons:** 10
+- **Orbitals:** 7  
+- **Qubits:** 14 (spin-orbital basis)
+- **Geometry:** O-H bond = 0.9575 Å, H-O-H angle = 104.5°
+
+**Energies (from README.md:100-108):**
+
+| Method | Energy (Ha) |
+|--------|-------------|
+| Hartree-Fock | -74.96297761 |
+| FCI (exact) | -75.01249437 |
+| Correlation | 0.049517 |
+
+<Accordion title="Molecular Structure">
+
+```python
+# From molecular_sim.py - H2O geometry
+geometry = [
+    ('O', (0.0, 0.0, 0.0)),
+    ('H', (0.9575, 0.0, 0.0)),
+    ('H', (0.239375, 0.926944, 0.0))
+]
+
+basis = 'sto-3g'
+charge = 0
+multiplicity = 1  # Singlet ground state
+```
+
+The geometry uses experimental equilibrium structure, ensuring realistic electronic structure calculations.
+
+</Accordion>
+
+### Ammonia (NH₃)
+
+**System Parameters:**
+- **Electrons:** 10
+- **Orbitals:** 8
+- **Qubits:** 16
+- **Status:** Processed successfully through pipeline
+
+<Info>
+NH₃ has one more orbital than H₂O due to nitrogen's 2s and 2p atomic orbitals. The pyramidal geometry (C₃ᵥ symmetry) affects orbital ordering.
+</Info>
+
+### Methane (CH₄)
+
+**System Parameters:**
+- **Electrons:** 10  
+- **Orbitals:** 9
+- **Qubits:** 18
+- **Symmetry:** Tetrahedral (Tₐ)
+- **Status:** Processed successfully through pipeline
+
+<Accordion title="Why 18 Qubits?">
+
+The qubit count comes from:
+- 9 spatial orbitals × 2 spins = 18 spin-orbitals
+- Each spin-orbital → 1 qubit in Jordan-Wigner mapping
+- Carbon contributes 4 valence orbitals (2s, 2pₓ, 2pᵧ, 2p_z)
+- Each hydrogen contributes ~1 molecular orbital
+- Plus antibonding combinations
+
+The tetrahedral symmetry allows potential reduction using point group symmetries, not yet implemented.
+
+</Accordion>
+
+## Framework Pipeline
+
+### PySCF Integration
+
+All polyatomic molecules use PySCF for quantum chemistry calculations:
+
+```python
+from pyscf import gto, scf, fci
+import numpy as np
+
+# Define molecule
+mol = gto.M(
+    atom='O 0 0 0; H 0.9575 0 0; H 0.239375 0.926944 0',
+    basis='sto-3g',
+    unit='Angstrom',
+    verbose=0
+)
+
+# Hartree-Fock
+mf = scf.RHF(mol).run()
+print(f"HF Energy: {mf.e_tot:.8f} Ha")
+
+# Full CI (exact within basis)
+cisolver = fci.FCI(mol, mf.mo_coeff)
+e_fci, _ = cisolver.kernel()
+print(f"FCI Energy: {e_fci:.8f} Ha")
+```
+
+### Jordan-Wigner Transformation
+
+Molecular orbitals are mapped to qubits:
+
+1. **Molecular Orbitals:** PySCF computes MO coefficients
+2. **Second Quantization:** Electronic Hamiltonian in creation/annihilation operators
+3. **Jordan-Wigner:** Fermion operators → Pauli strings on qubits
+4. **Hamiltonian:** Sum of weighted Pauli terms
+
+<Accordion title="Example: H₂O Hamiltonian">
+
+```python
+from openfermion import MolecularData
+from openfermion.transforms import jordan_wigner
+from openfermionpyscf import run_pyscf
+
+# Run PySCF via OpenFermion
+geometry = [('O', (0, 0, 0)), ('H', (0.9575, 0, 0)), ...]
+of_mol = MolecularData(geometry, 'sto-3g', 0, 1)
+of_mol = run_pyscf(of_mol, run_fci=True)
+
+# Get Hamiltonian
+mol_ham = of_mol.get_molecular_hamiltonian()
+fermion_op = get_fermion_operator(mol_ham)
+jw_hamiltonian = jordan_wigner(fermion_op)
+
+print(f"Number of Pauli terms: {len(jw_hamiltonian.terms)}")
+print(f"Nuclear repulsion: {of_mol.nuclear_repulsion:.6f} Ha")
+```
+
+For H₂O with 14 qubits, the Hamiltonian typically contains ~1000 Pauli terms.
+
+</Accordion>
+
+## Computational Scaling
+
+### Memory Requirements
+
+| Molecule | Qubits | Statevector | MPS (χ=16) | Compression |
+|----------|--------|-------------|------------|-------------|
+| H₂       | 4      | 16 complex  | ~0.5 KB    | 32x         |
+| H₂O      | 14     | 16,384      | ~7 KB      | ~2000x      |
+| NH₃      | 16     | 65,536      | ~8 KB      | ~8000x      |
+| CH₄      | 18     | 262,144     | ~9 KB      | ~30000x     |
+
+<Warning>
+Direct statevector simulation becomes impractical beyond 20 qubits. Use MPS backend (see [Topology](/advanced/topology)) for larger systems.
+</Warning>
+
+### FCI Scaling Limit
+
+From README.md line 109:
+
+> The limitation is not in the neural backends but in classical FCI cost. Beyond about ten orbitals, exact reference becomes prohibitive.
+
+Classical FCI scales as:
+- **Memory:** O(N_basis^4)
+- **Time:** O(N_basis^6) or worse
+
+For H₂O (7 orbitals), FCI is tractable. For larger systems, use:
+- CCSD/CCSD(T) for reference energies
+- DMRG for 1D systems
+- Selected CI methods
+
+## Implementation Details
+
+### Molecular Data Structure
+
+```python
+# From molecular_sim.py:34-38
+@dataclass 
+class MoleculeData:
+    name: str
+    n_electrons: int
+    n_orbitals: int
+    n_qubits: int
+    h_core: np.ndarray        # One-electron integrals
+    eri: np.ndarray           # Two-electron integrals (chemistry notation)
+    nuclear_repulsion: float
+    fci_energy: float
+    hf_energy: float
+    description: str = ""
+```
+
+### H₂O Example
+
+```python
+# From molecular_sim.py (adapted for H2O)
+def load_h2o():
+    from pyscf import gto, scf, fci, ao2mo
+    
+    mol = gto.M(
+        atom='O 0 0 0; H 0.9575 0 0; H 0.239375 0.926944 0',
+        basis='sto-3g',
+        unit='Angstrom',
+        verbose=0
+    )
+    
+    mf = scf.RHF(mol).run()
+    cisolver = fci.FCI(mol, mf.mo_coeff)
+    e_fci, _ = cisolver.kernel()
+    
+    h_core = mf.mo_coeff.T @ mf.get_hcore() @ mf.mo_coeff
+    eri_chem = ao2mo.restore(1, ao2mo.kernel(mol, mf.mo_coeff), mol.nao)
+    
+    return MoleculeData(
+        "H2O", 10, 7, 14,
+        h_core, eri_chem, mol.energy_nuc(),
+        e_fci, mf.e_tot,
+        "Water STO-3G"
+    )
+```
+
+## VQE for Polyatomic Molecules
+
+### UCCSD Ansatz
+
+The same UCCSD (Unitary Coupled Cluster Singles and Doubles) ansatz used for H₂ extends to polyatomic systems:
+
+```python
+# From molecular_sim.py:316-320
+singles, doubles = _sd_indices(n_electrons, n_qubits)
+n_singles = len(singles)  # = n_occupied × n_virtual
+n_doubles = len(doubles)  # = (n_occ choose 2) × (n_vir choose 2)
+n_params = n_singles + n_doubles
+```
+
+For H₂O (10 electrons, 14 qubits):
+- Occupied orbitals: 10
+- Virtual orbitals: 4  
+- Singles: 10 × 4 = 40
+- Doubles: 45 × 6 = 270
+- **Total parameters: 310**
+
+<Accordion title="Parameter Scaling">
+
+UCCSD parameter count scales as:
+
+$$
+n_{\text{params}} = n_{\text{occ}} \cdot n_{\text{vir}} + \binom{n_{\text{occ}}}{2} \binom{n_{\text{vir}}}{2}
+$$
+
+| Molecule | n_occ | n_vir | Singles | Doubles | Total |
+|----------|-------|-------|---------|---------|-------|
+| H₂       | 2     | 2     | 4       | 1       | 5     |
+| H₂O      | 5     | 2     | 10      | 10      | 20    |
+| NH₃      | 5     | 3     | 15      | 30      | 45    |
+| CH₄      | 5     | 4     | 20      | 60      | 80    |
+
+Note: Using spatial orbitals, not spin-orbitals.
+
+</Accordion>
+
+### Optimization Challenges
+
+Polyatomic VQE faces:
+1. **Parameter space explosion:** 100+ parameters for H₂O
+2. **Barren plateaus:** Gradient vanishing in large parameter spaces
+3. **Local minima:** Multiple stationary points
+4. **Classical cost:** Each energy evaluation requires full circuit execution
+
+<Warning>
+Current implementation uses L-BFGS-B optimizer. For production polyatomic VQE, consider:
+- ADAPT-VQE (adaptive parameter selection)
+- QNG (Quantum Natural Gradient)
+- SPSA (gradient-free)
+</Warning>
+
+## Experimental Results
+
+From README.md lines 99-113:
+
+### Pipeline Validation
+
+<Check>**H₂O**: 10 electrons, 7 orbitals, 14 qubits - Processed successfully</Check>
+
+<Check>**NH₃**: 10 electrons, 8 orbitals, 16 qubits - Processed successfully</Check>
+
+<Check>**CH₄**: 10 electrons, 9 orbitals, 18 qubits - Processed successfully</Check>
+
+### Key Observation (README.md:112-113)
+
+> The important observation is that nothing broke. The pipeline scales naturally.
+
+This demonstrates:
+- **Code generality:** No special-casing for molecule size
+- **Interface consistency:** Same API for H₂ and H₂O
+- **Neural backend robustness:** Backends handle varying qubit counts
+
+## Usage Example
+
+```python
+from molecular_sim import MOLECULES, ExactJWEnergy, VQESolver
+from quantum_computer import QuantumComputer, SimulatorConfig
+
+# Load molecule
+mol = MOLECULES["H2O"]  # or NH3, CH4
+
+print(f"Molecule: {mol.name}")
+print(f"Electrons: {mol.n_electrons}")
+print(f"Qubits: {mol.n_qubits}")
+print(f"HF Energy: {mol.hf_energy:.8f} Ha")
+print(f"FCI Energy: {mol.fci_energy:.8f} Ha")
+
+# Initialize quantum computer
+config = SimulatorConfig(
+    grid_size=16,
+    hamiltonian_checkpoint="hamiltonian.pth",
+    device="cpu"
+)
+qc = QuantumComputer(config)
+
+# Run VQE (warning: H2O takes ~hours on CPU)
+solver = VQESolver(qc, config)
+result = solver.run(mol, backend="hamiltonian", max_iter=100)
+
+print(result)  # Displays energy convergence
+```
+
+## Future Extensions
+
+<CardGroup cols={2}>
+  <Card title="Active Space" icon="crop">
+    Reduce qubit count by freezing core/deleting virtual orbitals
+  </Card>
+  <Card title="Symmetry" icon="reflect-horizontal">
+    Exploit point group symmetries to reduce parameter count
+  </Card>
+  <Card title="Fragment" icon="scissors">
+    Break large molecules into fragments for scalability
+  </Card>
+  <Card title="Adaptive" icon="sliders">
+    ADAPT-VQE for automatic parameter selection
+  </Card>
+</CardGroup>
+
+## References
+
+- README.md results: lines 99-113
+- Implementation: `molecular_sim.py`
+- PySCF documentation: https://pyscf.org
+- OpenFermion: https://github.com/quantumlib/OpenFermion
+
+## Related Topics
+
+<CardGroup cols={2}>
+  <Card title="Topology" icon="circle-nodes" href="/advanced/topology">
+    MPS for large molecules
+  </Card>
+  <Card title="Entanglement" icon="link" href="/advanced/entanglement-analysis">
+    Orbital entanglement
+  </Card>
+</CardGroup>

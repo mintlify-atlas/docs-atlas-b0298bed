@@ -1,0 +1,398 @@
+---
+title: Quantum Circuits
+description: Circuit representation, gate application, and the circuit builder API
+---
+
+Quantum circuits in the QC simulator are built using the `QuantumCircuit` class, which provides a fluent API for constructing gate sequences on n qubits.
+
+## Circuit Representation
+
+A quantum circuit is an ordered sequence of gate instructions applied to a qubit register.
+
+### CircuitInstruction
+
+Each gate in the circuit is stored as a `CircuitInstruction`:
+
+```python
+@dataclass
+class CircuitInstruction:
+    gate_name: str              # e.g., "H", "CNOT", "Rx"
+    targets: List[int]          # Qubit indices
+    params: Optional[Dict[str, float]] = None  # Parameters for parametric gates
+```
+
+**Example:**
+```python
+# Hadamard on qubit 0
+CircuitInstruction("H", [0], None)
+
+# CNOT with control=0, target=1
+CircuitInstruction("CNOT", [0, 1], None)
+
+# Rx rotation with angle π/4
+CircuitInstruction("Rx", [1], {"theta": 0.7853981633974483})
+```
+
+## QuantumCircuit Class
+
+The `QuantumCircuit` class stores a sequence of instructions and provides methods for building circuits.
+
+### Initialization
+
+```python
+class QuantumCircuit:
+    def __init__(self, n_qubits: int) -> None:
+        if n_qubits < 1:
+            raise ValueError("n_qubits must be >= 1")
+        self.n_qubits = n_qubits
+        self._instructions: List[CircuitInstruction] = []
+```
+
+**Usage:**
+```python
+# Create a 3-qubit circuit
+circuit = QuantumCircuit(3)
+```
+
+## Single-Qubit Gates
+
+All single-qubit gate methods return `self`, enabling fluent method chaining.
+
+### Pauli Gates
+
+```python
+def x(self, q: int) -> "QuantumCircuit":  # Pauli X (bit flip)
+    return self._append("X", [q])
+
+def y(self, q: int) -> "QuantumCircuit":  # Pauli Y
+    return self._append("Y", [q])
+
+def z(self, q: int) -> "QuantumCircuit":  # Pauli Z (phase flip)
+    return self._append("Z", [q])
+```
+
+**Matrix representation:**
+
+```
+X = [[0, 1],     Y = [[0, -i],    Z = [[1,  0],
+     [1, 0]]          [i,  0]]          [0, -1]]
+```
+
+### Hadamard Gate
+
+```python
+def h(self, q: int) -> "QuantumCircuit":
+    return self._append("H", [q])
+```
+
+**Matrix:**
+```
+H = (1/√2) [[1,  1],
+            [1, -1]]
+```
+
+The Hadamard gate creates superposition: `H|0⟩ = (|0⟩ + |1⟩)/√2`
+
+### Phase Gates
+
+```python
+def s(self, q: int) -> "QuantumCircuit":  # S = √Z
+    return self._append("S", [q])
+
+def t(self, q: int) -> "QuantumCircuit":  # T = √S
+    return self._append("T", [q])
+```
+
+**Matrices:**
+```
+S = [[1, 0],        T = [[1,       0    ],
+     [0, i]]             [0, e^(iπ/4)]]
+```
+
+### Rotation Gates
+
+Parametric rotation gates around the Bloch sphere axes:
+
+```python
+def rx(self, q: int, theta: float) -> "QuantumCircuit":
+    """Rotation around X-axis: Rx(θ) = exp(-iθ/2 · X)"""
+    return self._append("Rx", [q], {"theta": theta})
+
+def ry(self, q: int, theta: float) -> "QuantumCircuit":
+    """Rotation around Y-axis: Ry(θ) = exp(-iθ/2 · Y)"""
+    return self._append("Ry", [q], {"theta": theta})
+
+def rz(self, q: int, theta: float) -> "QuantumCircuit":
+    """Rotation around Z-axis: Rz(θ) = exp(-iθ/2 · Z)"""
+    return self._append("Rz", [q], {"theta": theta})
+```
+
+**Matrix forms:**
+```
+Rx(θ) = [[cos(θ/2),  -i·sin(θ/2)],      Ry(θ) = [[cos(θ/2), -sin(θ/2)],
+         [-i·sin(θ/2), cos(θ/2)]]               [sin(θ/2),  cos(θ/2)]]
+
+Rz(θ) = [[e^(-iθ/2),    0     ],
+         [   0,      e^(iθ/2)]]
+```
+
+## Two-Qubit Gates
+
+### CNOT (Controlled-NOT)
+
+```python
+def cnot(self, ctrl: int, tgt: int) -> "QuantumCircuit":
+    return self._append("CNOT", [ctrl, tgt])
+
+def cx(self, ctrl: int, tgt: int) -> "QuantumCircuit":
+    return self.cnot(ctrl, tgt)  # Alias
+```
+
+**Action:** `|ctrl, tgt⟩ → |ctrl, ctrl ⊕ tgt⟩`
+
+**Matrix (in basis |00⟩, |01⟩, |10⟩, |11⟩):**
+```
+CNOT = [[1, 0, 0, 0],
+        [0, 1, 0, 0],
+        [0, 0, 0, 1],
+        [0, 0, 1, 0]]
+```
+
+### CZ (Controlled-Z)
+
+```python
+def cz(self, ctrl: int, tgt: int) -> "QuantumCircuit":
+    return self._append("CZ", [ctrl, tgt])
+```
+
+**Action:** Applies phase -1 to `|11⟩`
+
+**Matrix:**
+```
+CZ = [[1, 0, 0,  0],
+      [0, 1, 0,  0],
+      [0, 0, 1,  0],
+      [0, 0, 0, -1]]
+```
+
+### SWAP
+
+```python
+def swap(self, a: int, b: int) -> "QuantumCircuit":
+    return self._append("SWAP", [a, b])
+```
+
+**Action:** Exchanges qubits a and b
+
+**Matrix:**
+```
+SWAP = [[1, 0, 0, 0],
+        [0, 0, 1, 0],
+        [0, 1, 0, 0],
+        [0, 0, 0, 1]]
+```
+
+## Multi-Qubit Gates
+
+### Toffoli (CCX)
+
+```python
+def toffoli(self, c0: int, c1: int, tgt: int) -> "QuantumCircuit":
+    return self._append("CCX", [c0, c1, tgt])
+
+def ccx(self, c0: int, c1: int, tgt: int) -> "QuantumCircuit":
+    return self.toffoli(c0, c1, tgt)  # Alias
+```
+
+**Action:** Flips target iff both controls are `|1⟩`
+
+### MCZ (Multi-Controlled Z)
+
+```python
+# Multi-controlled Z gate (used in Grover's algorithm)
+MCZGate().apply(state, backend, targets=[0, 1, 2], params=None)
+```
+
+**Action:** Applies phase -1 to the state where all target qubits are `|1⟩`
+
+## Circuit Building API
+
+All gate methods return `self`, enabling fluent method chaining:
+
+```python
+# Bell state
+circuit = QuantumCircuit(2)
+circuit.h(0).cnot(0, 1)
+
+# GHZ state
+circuit = QuantumCircuit(3)
+circuit.h(0).cnot(0, 1).cnot(1, 2)
+
+# Quantum Fourier Transform (3 qubits)
+circuit = QuantumCircuit(3)
+circuit.h(0)
+circuit.rz(1, math.pi/2).cnot(0, 1)
+circuit.rz(1, -math.pi/2).cnot(0, 1)
+circuit.h(1)
+circuit.rz(2, math.pi/4).cnot(0, 2)
+# ... (full QFT implementation)
+
+# Parametric circuit for VQE
+circuit = QuantumCircuit(4)
+for i in range(4):
+    circuit.ry(i, theta[i])
+circuit.cnot(0, 1).cnot(2, 3).cnot(1, 2)
+for i in range(4):
+    circuit.ry(i, theta[4+i])
+```
+
+## Circuit Execution
+
+Circuits are executed by the `QuantumComputer.run()` method:
+
+```python
+qc = QuantumComputer(config)
+circuit = QuantumCircuit(2).h(0).cnot(0, 1)
+result = qc.run(circuit, backend="schrodinger")
+```
+
+During execution:
+1. Initial state is created (default: `|00...0⟩`)
+2. Each instruction is fetched from the gate registry
+3. The gate's `apply()` method transforms the state
+4. Final state is measured non-destructively
+
+## Gate Registry
+
+Gates are looked up from a global registry:
+
+```python
+_GATE_REGISTRY: Dict[str, IQuantumGate] = {
+    "H":      HadamardGate(),
+    "X":      PauliXGate(),
+    "Y":      PauliYGate(),
+    "Z":      PauliZGate(),
+    "S":      SGate(),
+    "T":      TGate(),
+    "Rx":     RxGate(),
+    "Ry":     RyGate(),
+    "Rz":     RzGate(),
+    "CNOT":   CNOTGate(),
+    "CX":     CNOTGate(),
+    "CZ":     CZGate(),
+    "SWAP":   SWAPGate(),
+    "CCX":    ToffoliGate(),
+    "MCZ":    MCZGate(),
+    "Evolve": EvolveGate(),
+}
+```
+
+### Custom Gates
+
+Register custom gates using the Open/Closed Principle:
+
+```python
+class MyCustomGate(IQuantumGate):
+    @property
+    def name(self) -> str:
+        return "CUSTOM"
+    
+    def apply(self, state, backend, targets, params):
+        # Custom gate logic
+        return modified_state
+
+register_gate("CUSTOM", MyCustomGate())
+
+# Now available in circuits
+circuit.custom(0)  # If you add a method to QuantumCircuit
+```
+
+## Circuit Properties
+
+```python
+# Number of gates
+len(circuit)  # Returns number of instructions
+
+# Circuit depth
+circuit.depth()  # Returns number of instructions (same as len)
+
+# Number of qubits
+circuit.n_qubits  # Read-only property
+
+# Representation
+print(circuit)
+# Output:
+# QuantumCircuit(2 qubits, depth=2)
+#   [000] H q[0]
+#   [001] CNOT q[0, 1]
+```
+
+## Example Circuits
+
+### Bell State
+
+```python
+circuit = QuantumCircuit(2)
+circuit.h(0).cnot(0, 1)
+# Result: (|00⟩ + |11⟩)/√2
+```
+
+### Grover's Algorithm
+
+```python
+def grover_3qubit_mark_state_5():
+    """Mark state |101⟩"""
+    circuit = QuantumCircuit(3)
+    
+    # Initialize superposition
+    circuit.h(0).h(1).h(2)
+    
+    # Grover iteration
+    # Oracle: mark |101⟩
+    circuit.x(1)  # Flip qubit 1 so |101⟩ becomes |111⟩
+    # Apply MCZ to mark |111⟩
+    # ... (MCZ implementation)
+    circuit.x(1)  # Flip back
+    
+    # Diffusion operator
+    circuit.h(0).h(1).h(2)
+    circuit.x(0).x(1).x(2)
+    # ... (MCZ on all qubits)
+    circuit.x(0).x(1).x(2)
+    circuit.h(0).h(1).h(2)
+    
+    return circuit
+```
+
+### Variational Quantum Eigensolver (VQE)
+
+```python
+def uccsd_ansatz(params: List[float]):
+    """UCCSD ansatz for H2 (4 qubits)"""
+    circuit = QuantumCircuit(4)
+    
+    # Singles: Ry rotations
+    for i in range(4):
+        circuit.ry(i, params[i])
+    
+    # Double excitation
+    circuit.cnot(0, 1).cnot(2, 3).cnot(1, 2)
+    circuit.ry(2, params[4])
+    circuit.cnot(1, 2).cnot(2, 3).cnot(0, 1)
+    
+    return circuit
+```
+
+<Info>
+Circuits are pure data structures. They store instructions but do not execute them. Execution happens in `QuantumComputer.run()`.
+</Info>
+
+<Note>
+All qubit indices are 0-based. For an n-qubit circuit, valid indices are 0 to n-1.
+</Note>
+
+## See Also
+
+- [State Representation](/concepts/state-representation) - How quantum states are stored
+- [Neural Backends](/concepts/neural-backends) - The physics engines that evolve states
+- [Constraint Preservation](/concepts/constraint-preservation) - Test results showing gate correctness

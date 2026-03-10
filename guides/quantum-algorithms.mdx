@@ -1,0 +1,259 @@
+---
+title: 'Quantum Algorithms'
+description: 'Implement quantum algorithms using the quantum computer simulator'
+---
+
+# Quantum Algorithms
+
+The QC simulator includes implementations of several fundamental quantum algorithms. All examples use the `quantum_computer.py` module.
+
+## Bell State Preparation
+
+Create an entangled Bell state |00⟩ + |11⟩:
+
+```python
+from quantum_computer import QuantumComputer, QuantumCircuit, SimulatorConfig
+
+# Initialize quantum computer
+config = SimulatorConfig(device="cpu")
+qc = QuantumComputer(config)
+
+# Create Bell state circuit
+circuit = QuantumCircuit(2)
+circuit.h(0)           # Hadamard on qubit 0
+circuit.cnot(0, 1)     # CNOT with control=0, target=1
+
+# Run circuit
+result = qc.run(circuit, backend="schrodinger")
+print(result)
+```
+
+**Expected Output:**
+- Most probable states: |00⟩ and |11⟩ with ~50% probability each
+- Shannon entropy: ~1.0 bits (maximal entanglement)
+- Per-qubit marginals: P(|1⟩) ≈ 0.5 for both qubits
+
+## GHZ State
+
+Create a 3-qubit GHZ state |000⟩ + |111⟩:
+
+```python
+circuit = QuantumCircuit(3)
+circuit.h(0)
+for i in range(2):
+    circuit.cnot(i, i + 1)
+
+result = qc.run(circuit, backend="hamiltonian")
+```
+
+The GHZ state exhibits genuine multipartite entanglement.
+
+## Deutsch-Jozsa Algorithm
+
+Determine if a function is constant or balanced in a single query:
+
+```python
+def deutsch_jozsa(n_qubits, oracle_type="balanced"):
+    circuit = QuantumCircuit(n_qubits + 1)
+    
+    # Initialize ancilla in |1⟩
+    circuit.x(n_qubits)
+    
+    # Apply Hadamard to all qubits
+    for i in range(n_qubits + 1):
+        circuit.h(i)
+    
+    # Oracle (example: balanced function)
+    if oracle_type == "balanced":
+        circuit.cnot(0, n_qubits)
+    
+    # Apply Hadamard to input qubits
+    for i in range(n_qubits):
+        circuit.h(i)
+    
+    result = qc.run(circuit)
+    
+    # Measure first n_qubits
+    if result.probabilities[0] > 0.9:
+        return "constant"
+    else:
+        return "balanced"
+```
+
+## Quantum Fourier Transform (QFT)
+
+Implement the QFT for n qubits:
+
+<CodeGroup>
+```python Manual Construction
+def qft(n_qubits):
+    circuit = QuantumCircuit(n_qubits)
+    
+    for i in range(n_qubits):
+        circuit.h(i)
+        for j in range(i + 1, n_qubits):
+            angle = math.pi / (2 ** (j - i))
+            circuit.rz(j, angle)
+            circuit.cnot(i, j)
+            circuit.rz(j, -angle)
+            circuit.cnot(i, j)
+    
+    # Swap qubits
+    for i in range(n_qubits // 2):
+        circuit.swap(i, n_qubits - 1 - i)
+    
+    return circuit
+```
+
+```python Using StandardCircuits
+from quantum_visualizer import StandardCircuits
+
+gates = StandardCircuits.qft(3)
+result = qc.run_circuit_gates(gates, 3, "schrodinger")
+```
+</CodeGroup>
+
+## Grover's Algorithm
+
+Search for a marked item in an unsorted database:
+
+<Steps>
+  <Step title="Initialize superposition">
+    ```python
+    n_qubits = 3
+    marked_state = 5  # Search for |101⟩
+    
+    circuit = QuantumCircuit(n_qubits)
+    
+    # Create uniform superposition
+    for i in range(n_qubits):
+        circuit.h(i)
+    ```
+  </Step>
+
+  <Step title="Apply oracle">
+    The oracle marks the target state by flipping its phase:
+    
+    ```python
+    # Flip bits not in target
+    for i in range(n_qubits):
+        if not (marked_state >> (n_qubits - 1 - i)) & 1:
+            circuit.x(i)
+    
+    # Multi-controlled Z gate
+    targets = list(range(n_qubits))
+    circuit._append("MCZ", targets)
+    
+    # Undo bit flips
+    for i in range(n_qubits):
+        if not (marked_state >> (n_qubits - 1 - i)) & 1:
+            circuit.x(i)
+    ```
+  </Step>
+
+  <Step title="Apply diffusion operator">
+    ```python
+    # Grover diffusion
+    for i in range(n_qubits):
+        circuit.h(i)
+        circuit.x(i)
+    
+    circuit._append("MCZ", targets)
+    
+    for i in range(n_qubits):
+        circuit.x(i)
+        circuit.h(i)
+    ```
+  </Step>
+
+  <Step title="Iterate and measure">
+    ```python
+    # Optimal iterations: ~π/4 * sqrt(N)
+    iterations = int(np.pi / 4 * np.sqrt(2**n_qubits))
+    
+    for _ in range(iterations):
+        # Apply oracle + diffusion
+        pass
+    
+    result = qc.run(circuit)
+    
+    # Probability of marked state
+    bitstring = format(marked_state, f'0{n_qubits}b')
+    prob = result.full_distribution[bitstring]
+    print(f"P(|{bitstring}⟩) = {prob:.4f}")
+    ```
+  </Step>
+</Steps>
+
+**Expected Output:**
+- For 3 qubits, 8 states, optimal iterations ≈ 2
+- Probability of marked state > 90%
+
+## Backend Comparison
+
+Compare different physics backends:
+
+```python
+from quantum_computer import SimulatorConfig
+
+config = SimulatorConfig(
+    hamiltonian_checkpoint="weights/latest.pth",
+    schrodinger_checkpoint="weights/schrodinger_crystal_final.pth",
+    dirac_checkpoint="weights/dirac_phase5_latest.pth",
+)
+
+qc = QuantumComputer(config)
+
+# Run same circuit on different backends
+for backend in ["hamiltonian", "schrodinger", "dirac"]:
+    result = qc.run(circuit, backend=backend)
+    print(f"{backend}: entropy={result.entropy():.4f}")
+```
+
+## Available Gates
+
+All quantum gates from quantum_computer.py:1157-1174:
+
+- **Single-qubit**: H, X, Y, Z, S, T, Rx(θ), Ry(θ), Rz(θ)
+- **Two-qubit**: CNOT, CX, CZ, SWAP
+- **Multi-qubit**: CCX (Toffoli), MCZ (Multi-controlled Z)
+- **Special**: Evolve (free Hamiltonian evolution)
+
+## Circuit Inspection
+
+Visualize circuit structure:
+
+```python
+print(circuit)  # Shows gate sequence
+print(f"Circuit depth: {circuit.depth()}")
+print(f"Number of gates: {len(circuit)}")
+```
+
+## State Analysis
+
+```python
+result = qc.run(circuit)
+
+# Bloch vector for each qubit
+for i in range(circuit.n_qubits):
+    bx, by, bz = result.bloch_vectors[i]
+    print(f"Qubit {i}: ({bx:.3f}, {by:.3f}, {bz:.3f})")
+
+# Expectation value <Z>
+for i in range(circuit.n_qubits):
+    print(f"⟨Z_{i}⟩ = {result.expectation_z(i):.4f}")
+
+# Shannon entropy
+print(f"Entropy: {result.entropy():.4f} bits")
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Molecular Simulation" icon="atom" href="/guides/molecular-simulation">
+    Apply VQE to molecular systems
+  </Card>
+  <Card title="Visualization" icon="chart-line" href="/guides/visualization">
+    Visualize quantum states and evolution
+  </Card>
+</CardGroup>

@@ -1,0 +1,168 @@
+---
+title: 'Constraint Preservation Tests'
+description: 'Phase coherence test suite results demonstrating exact quantum constraint preservation across all three neural backends'
+---
+
+## Overview
+
+The Phase Coherence & Unitarity Test Suite validates that all three neural backends (Hamiltonian, Schrödinger, and Dirac) preserve fundamental quantum mechanical constraints without explicit enforcement. All 22 tests passed with exact agreement.
+
+## Test Results Summary
+
+**Result: 22/22 tests passed** across all three backends
+
+```text
+======================================================================
+PHASE COHERENCE & UNITARITY TEST SUITE
+======================================================================
+ALL TESTS PASSED  (22/22)
+======================================================================
+```
+
+## Test Groups
+
+### Group 1: Single-Qubit Phase Algebra
+
+These tests verify that phase relationships are preserved through gate sequences:
+
+<Accordion title="Single-Qubit Phase Algebra Tests (8 tests)">
+
+| Test | Description | Result | Measured |
+|------|-------------|--------|----------|
+| HZH = X | Hadamard-Z-Hadamard equals X gate | PASS | P(|1>)=1.0000 |
+| HXH = Z | Hadamard-X-Hadamard equals Z gate | PASS | P(|1>)=0.0000 |
+| HSSH = HZH = X | S-gate composition via HZH | PASS | P(|1>)=1.0000 |
+| H Rz(π) H = X | Rotation composition | PASS | P(|1>)=1.0000 |
+| Ry(π)|0> = |1> | Y-rotation by π | PASS | P(|1>)=1.0000 |
+| XX = I | X gate is self-inverse | PASS | P(|1>)=0.0000 |
+| HZZH = I | Z-Z cancellation | PASS | P(|1>)=0.0000 |
+| Rx(π)|0> = |1> | X-rotation by π | PASS | P(|1>)=1.0000 |
+
+All tests executed as amplitude evolution rather than symbolic substitution.
+
+</Accordion>
+
+### Group 2: Two-Qubit Phase-Sensitive Interference
+
+These tests verify correct phase handling in entangled states:
+
+<Accordion title="Two-Qubit Phase Tests (5 tests)">
+
+| Test | Description | Result | Measured |
+|------|-------------|--------|----------|
+| H CNOT CNOT H = I | CNOT self-inverse property | PASS | P(|00>)=1.0000 |
+| H CNOT CZ CZ CNOT H = I | Controlled-Z cancellation | PASS | P(|00>)=1.0000 |
+| H CNOT Z(ctrl) CNOT H = X(0) | Phase-controlled interference | PASS | P(|10>)=1.0000 |
+| X(1) SWAP SWAP = I | SWAP gate reversibility | PASS | P(|01>)=1.0000 |
+| SWAP |01> = |10> | Qubit exchange | PASS | P(|10>)=1.0000 |
+
+These tests are particularly sensitive to phase errors in two-qubit operations.
+
+</Accordion>
+
+### Group 3: Norm Preservation (Unitarity)
+
+These tests verify that probability normalization is preserved:
+
+<Accordion title="Norm Preservation Tests (6 tests)">
+
+| Circuit | Sum of Probabilities | Result |
+|---------|---------------------|--------|
+| After H | 1.00000000 | PASS |
+| After X | 1.00000000 | PASS |
+| After HXH | 1.00000000 | PASS |
+| After Bell | 1.00000000 | PASS |
+| After GHZ | 1.00000000 | PASS |
+| After QFT-3 | 1.00000000 | PASS |
+
+All probability distributions sum to exactly 1.0 to machine precision.
+
+</Accordion>
+
+### Group 4: Entanglement (Shannon Entropy)
+
+These tests verify correct entropy for known quantum states:
+
+<Accordion title="Entropy Tests (3 tests)">
+
+| State | Expected Entropy | Measured | Result |
+|-------|-----------------|----------|--------|
+| Bell state | 1 bit | 1.0000 bits | PASS |
+| GHZ-3 | 1 bit | 1.0000 bits | PASS |
+| QFT-3 | 3 bits | 3.0000 bits | PASS |
+| |0> | 0 bits | 0.0000 bits | PASS |
+
+Shannon entropy is computed as: H = -Σ P(k) log₂ P(k)
+
+</Accordion>
+
+## Full Test Log
+
+<Accordion title="Complete Test Output from README.md:744-780">
+
+```text
+======================================================================
+PHASE COHERENCE & UNITARITY TEST SUITE
+======================================================================
+
+--- Group 1: Single-qubit phase algebra ---
+  [PASS] HZH = X  (|0>->|1>):  P(|1>)=1.0000  expected=1.0
+  [PASS] HXH = Z  (|0>->|0>):  P(|1>)=0.0000  expected=0.0
+  [PASS] HSSH = HZH = X  (P(|1>)=1.0000  expected=1.0)
+  [PASS] H Rz(pi) H = X  (P(|1>)=1.0000  expected=1.0)
+  [PASS] Ry(pi)|0> = |1>  (P(|1>)=1.0000  expected=1.0)
+  [PASS] XX = I  (|0>->|0>):  P(|1>)=0.0000  expected=0.0
+  [PASS] HZZH = H I H = I  (P(|1>)=0.0000  expected=0.0)
+  [PASS] Rx(pi)|0> = |1>  (P(|1>)=1.0000  expected=1.0)
+
+--- Group 2: Two-qubit phase-sensitive interference ---
+  [PASS] H CNOT CNOT H = I  (P(|00>)=1.0000  expected=1.0)
+  [PASS] H CNOT CZ CZ CNOT H = I  (P(|00>)=1.0000  expected=1.0)
+  [PASS] H CNOT Z(ctrl) CNOT H = X(0)  (P(|10>)=1.0000  expected=1.0)
+  [PASS] X(1) SWAP SWAP = I  (P(|01>)=1.0000  expected=1.0)
+  [PASS] SWAP |01> = |10>  (P(|10>)=1.0000  expected=1.0)
+
+--- Group 3: Norm preservation (unitarity) ---
+  [PASS] Norm preserved after H: sum(P)=1.00000000  expected=1.0
+  [PASS] Norm preserved after X: sum(P)=1.00000000  expected=1.0
+  [PASS] Norm preserved after HXH: sum(P)=1.00000000  expected=1.0
+  [PASS] Norm preserved after Bell: sum(P)=1.00000000  expected=1.0
+  [PASS] Norm preserved after GHZ: sum(P)=1.00000000  expected=1.0
+  [PASS] Norm preserved after QFT-3: sum(P)=1.00000000  expected=1.0
+
+--- Group 4: Entanglement (Shannon entropy) ---
+  [PASS] Bell state entropy = 1 bit  (got 1.0000)
+  [PASS] GHZ-3 entropy = 1 bit  (got 1.0000)
+  [PASS] QFT-3 entropy = 3 bits  (got 3.0000)
+  [PASS] |0> entropy = 0 bits  (got 0.0000)
+
+======================================================================
+ALL TESTS PASSED  (22/22)
+======================================================================
+```
+
+</Accordion>
+
+## Significance
+
+The test suite demonstrates that neural backends preserve quantum mechanical constraints through amplitude evolution rather than symbolic manipulation. These are not approximate results—they are exact to machine precision.
+
+As stated in README.md:143:
+
+> The backends do not merely preserve probabilities and phases. They preserve the mathematical relationships needed for response calculations.
+
+## Backend Independence
+
+All three neural backends passed identical tests:
+
+- **Hamiltonian Backend**: Spectral convolution network
+- **Schrödinger Backend**: 2-channel wavefunction propagation network
+- **Dirac Backend**: 8-channel spinor network
+
+No weights were shared. No caches were synchronized. All three ran independently on CPU with identical random seeds.
+
+## Related Tests
+
+See also:
+- [Phase Coherence Algebra](/research/phase-coherence) - Detailed mathematical analysis
+- [Results Summary](/research/results) - Complete experimental results

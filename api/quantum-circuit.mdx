@@ -1,0 +1,560 @@
+---
+title: 'QuantumCircuit'
+description: 'Ordered sequence of quantum gate instructions for building quantum algorithms'
+---
+
+## Overview
+
+The `QuantumCircuit` class is a pure data structure that stores an ordered sequence of quantum gate instructions. It does not execute gates itself — execution is performed by `QuantumComputer.run()`. This separation follows the Open/Closed Principle and allows the same circuit to be executed on different physics backends.
+
+**Key Features:**
+- Fluent API with method chaining
+- Supports all standard gates (H, X, Y, Z, S, T, Rx, Ry, Rz, CNOT, CZ, SWAP, Toffoli)
+- Multi-controlled gates (MCZ for Grover oracles)
+- Custom physics evolution gates
+- Automatic qubit index validation
+
+**Location:** `quantum_computer.py:1191-1274`
+
+## Constructor
+
+```python
+QuantumCircuit(n_qubits: int)
+```
+
+Create an empty quantum circuit for n qubits.
+
+<ParamField path="n_qubits" type="int" required>
+  Number of qubits in the circuit. Must be ≥ 1.
+</ParamField>
+
+### Example
+
+```python
+from quantum_computer import QuantumCircuit
+
+# Create a 3-qubit circuit
+circuit = QuantumCircuit(3)
+print(circuit)  # QuantumCircuit(3 qubits, depth=0)
+```
+
+## Single-Qubit Gates
+
+All single-qubit gate methods return `self` for method chaining.
+
+### h (Hadamard)
+
+```python
+h(q: int) -> QuantumCircuit
+```
+
+Apply Hadamard gate: H = [[1, 1], [1, -1]] / √2
+
+<ParamField path="q" type="int" required>
+  Target qubit index (0-indexed)
+</ParamField>
+
+```python
+circuit.h(0)  # H on qubit 0
+```
+
+### x (Pauli-X)
+
+```python
+x(q: int) -> QuantumCircuit
+```
+
+Apply Pauli-X gate (bit flip): X = [[0, 1], [1, 0]]
+
+<ParamField path="q" type="int" required>
+  Target qubit index
+</ParamField>
+
+```python
+circuit.x(1)  # X on qubit 1
+```
+
+### y (Pauli-Y)
+
+```python
+y(q: int) -> QuantumCircuit
+```
+
+Apply Pauli-Y gate: Y = [[0, -i], [i, 0]]
+
+<ParamField path="q" type="int" required>
+  Target qubit index
+</ParamField>
+
+```python
+circuit.y(2)  # Y on qubit 2
+```
+
+### z (Pauli-Z)
+
+```python
+z(q: int) -> QuantumCircuit
+```
+
+Apply Pauli-Z gate (phase flip): Z = [[1, 0], [0, -1]]
+
+<ParamField path="q" type="int" required>
+  Target qubit index
+</ParamField>
+
+```python
+circuit.z(0)  # Z on qubit 0
+```
+
+### s (S gate)
+
+```python
+s(q: int) -> QuantumCircuit
+```
+
+Apply S gate (phase): S = [[1, 0], [0, i]]
+
+<ParamField path="q" type="int" required>
+  Target qubit index
+</ParamField>
+
+```python
+circuit.s(1)  # S on qubit 1
+```
+
+### t (T gate)
+
+```python
+t(q: int) -> QuantumCircuit
+```
+
+Apply T gate (π/8 phase): T = [[1, 0], [0, e^(iπ/4)]]
+
+<ParamField path="q" type="int" required>
+  Target qubit index
+</ParamField>
+
+```python
+circuit.t(0)  # T on qubit 0
+```
+
+## Rotation Gates
+
+### rx (Rotation around X)
+
+```python
+rx(q: int, theta: float) -> QuantumCircuit
+```
+
+Apply Rx rotation: Rx(θ) = exp(-i θ/2 X)
+
+<ParamField path="q" type="int" required>
+  Target qubit index
+</ParamField>
+
+<ParamField path="theta" type="float" required>
+  Rotation angle in radians
+</ParamField>
+
+```python
+import math
+circuit.rx(0, math.pi / 2)  # π/2 rotation around X
+```
+
+### ry (Rotation around Y)
+
+```python
+ry(q: int, theta: float) -> QuantumCircuit
+```
+
+Apply Ry rotation: Ry(θ) = exp(-i θ/2 Y)
+
+<ParamField path="q" type="int" required>
+  Target qubit index
+</ParamField>
+
+<ParamField path="theta" type="float" required>
+  Rotation angle in radians
+</ParamField>
+
+```python
+import math
+circuit.ry(1, math.pi / 3)  # π/3 rotation around Y
+```
+
+### rz (Rotation around Z)
+
+```python
+rz(q: int, theta: float) -> QuantumCircuit
+```
+
+Apply Rz rotation: Rz(θ) = exp(-i θ/2 Z)
+
+<ParamField path="q" type="int" required>
+  Target qubit index
+</ParamField>
+
+<ParamField path="theta" type="float" required>
+  Rotation angle in radians
+</ParamField>
+
+```python
+import math
+circuit.rz(2, math.pi / 4)  # π/4 rotation around Z
+```
+
+## Two-Qubit Gates
+
+### cnot / cx (Controlled-NOT)
+
+```python
+cnot(ctrl: int, tgt: int) -> QuantumCircuit
+cx(ctrl: int, tgt: int) -> QuantumCircuit  # Alias
+```
+
+Apply CNOT gate: |ctrl, tgt⟩ → |ctrl, ctrl ⊕ tgt⟩
+
+<ParamField path="ctrl" type="int" required>
+  Control qubit index
+</ParamField>
+
+<ParamField path="tgt" type="int" required>
+  Target qubit index
+</ParamField>
+
+```python
+circuit.cnot(0, 1)  # CNOT with control=0, target=1
+circuit.cx(0, 1)    # Same as above
+```
+
+### cz (Controlled-Z)
+
+```python
+cz(ctrl: int, tgt: int) -> QuantumCircuit
+```
+
+Apply CZ gate: applies phase -1 to |11⟩
+
+<ParamField path="ctrl" type="int" required>
+  Control qubit index
+</ParamField>
+
+<ParamField path="tgt" type="int" required>
+  Target qubit index
+</ParamField>
+
+```python
+circuit.cz(0, 1)  # CZ between qubits 0 and 1
+```
+
+### swap (SWAP)
+
+```python
+swap(a: int, b: int) -> QuantumCircuit
+```
+
+Swap two qubits: |ab⟩ → |ba⟩
+
+<ParamField path="a" type="int" required>
+  First qubit index
+</ParamField>
+
+<ParamField path="b" type="int" required>
+  Second qubit index
+</ParamField>
+
+```python
+circuit.swap(0, 2)  # Swap qubits 0 and 2
+```
+
+## Multi-Qubit Gates
+
+### toffoli / ccx (Toffoli/CCX)
+
+```python
+toffoli(c0: int, c1: int, tgt: int) -> QuantumCircuit
+ccx(c0: int, c1: int, tgt: int) -> QuantumCircuit  # Alias
+```
+
+Apply Toffoli (controlled-controlled-X): flip target iff both controls are |1⟩
+
+<ParamField path="c0" type="int" required>
+  First control qubit index
+</ParamField>
+
+<ParamField path="c1" type="int" required>
+  Second control qubit index
+</ParamField>
+
+<ParamField path="tgt" type="int" required>
+  Target qubit index
+</ParamField>
+
+```python
+circuit.toffoli(0, 1, 2)  # Toffoli with controls 0,1 and target 2
+circuit.ccx(0, 1, 2)      # Same as above
+```
+
+### _append (Advanced: Custom Gates)
+
+```python
+_append(
+    gate_name: str,
+    targets: List[int],
+    params: Optional[Dict[str, float]] = None
+) -> QuantumCircuit
+```
+
+Low-level method to append any gate from the registry. Used internally by all gate methods.
+
+<ParamField path="gate_name" type="str" required>
+  Gate name from the global gate registry (e.g., "H", "CNOT", "MCZ", "Evolve")
+</ParamField>
+
+<ParamField path="targets" type="List[int]" required>
+  List of target qubit indices
+</ParamField>
+
+<ParamField path="params" type="Dict[str, float]" default="None">
+  Optional dictionary of gate parameters
+</ParamField>
+
+```python
+# Multi-controlled Z (for Grover oracle)
+circuit._append("MCZ", [0, 1, 2])  # Phase flip on |111⟩
+
+# Custom evolution
+circuit._append("Evolve", [0, 1], {"dt": 0.01, "steps": 10})
+```
+
+## Physics Evolution
+
+### evolve
+
+```python
+evolve(
+    qubits: List[int],
+    dt: float = 0.01,
+    steps: int = 1
+) -> QuantumCircuit
+```
+
+Apply free Hamiltonian evolution to specified qubits using the active physics backend.
+
+<ParamField path="qubits" type="List[int]" required>
+  List of qubit indices to evolve
+</ParamField>
+
+<ParamField path="dt" type="float" default="0.01">
+  Time step for evolution
+</ParamField>
+
+<ParamField path="steps" type="int" default="1">
+  Number of evolution steps
+</ParamField>
+
+```python
+# Evolve qubits 0 and 1 for 10 time steps
+circuit.evolve([0, 1], dt=0.01, steps=10)
+```
+
+## Utility Methods
+
+### barrier
+
+```python
+barrier() -> QuantumCircuit
+```
+
+Logical barrier (no-op for visualization/organization).
+
+```python
+circuit.h(0).barrier().cnot(0, 1)
+```
+
+### depth
+
+```python
+depth() -> int
+```
+
+Return the circuit depth (number of instructions).
+
+<ResponseField name="depth" type="int">
+  Number of gate instructions in the circuit
+</ResponseField>
+
+```python
+print(circuit.depth())  # 5
+```
+
+### __len__
+
+```python
+__len__() -> int
+```
+
+Return the circuit length (same as depth).
+
+```python
+print(len(circuit))  # 5
+```
+
+### __repr__
+
+```python
+__repr__() -> str
+```
+
+Return a human-readable string representation.
+
+```python
+print(circuit)
+# Output:
+# QuantumCircuit(3 qubits, depth=5)
+#   [000] H q[0]
+#   [001] CNOT q[0, 1]
+#   [002] Rz q[2]
+#   ...
+```
+
+## Complete Examples
+
+### Bell State
+
+```python
+from quantum_computer import QuantumCircuit
+
+circuit = QuantumCircuit(2)
+circuit.h(0).cnot(0, 1)
+print(circuit.depth())  # 2
+```
+
+### GHZ State
+
+```python
+circuit = QuantumCircuit(3)
+circuit.h(0)
+for i in range(2):
+    circuit.cnot(i, i + 1)
+```
+
+### Quantum Fourier Transform
+
+```python
+import math
+
+def qft(n_qubits: int) -> QuantumCircuit:
+    circuit = QuantumCircuit(n_qubits)
+    for i in range(n_qubits):
+        circuit.h(i)
+        for j in range(i + 1, n_qubits):
+            circuit.rz(j, math.pi / (2 ** (j - i)))
+    return circuit
+
+qft_circuit = qft(3)
+```
+
+### Variational Ansatz
+
+```python
+import math
+
+def variational(n_qubits: int, thetas: list) -> QuantumCircuit:
+    circuit = QuantumCircuit(n_qubits)
+    n_layers = len(thetas) // n_qubits
+    for layer in range(n_layers):
+        # Ry layer
+        for q in range(n_qubits):
+            circuit.ry(q, thetas[layer * n_qubits + q])
+        # Entangling layer
+        for q in range(n_qubits - 1):
+            circuit.cnot(q, q + 1)
+    return circuit
+
+thetas = [math.pi/4, math.pi/3, math.pi/6, math.pi/2]
+circuit = variational(2, thetas)
+```
+
+### Grover Oracle (3-qubit)
+
+```python
+def grover_oracle(n_qubits: int, target: str) -> QuantumCircuit:
+    """Phase oracle that marks target bitstring."""
+    circuit = QuantumCircuit(n_qubits)
+    
+    # Apply X where target bit is '0'
+    for i, bit in enumerate(target):
+        if bit == "0":
+            circuit.x(i)
+    
+    # Multi-controlled Z
+    circuit._append("MCZ", list(range(n_qubits)))
+    
+    # Undo X gates
+    for i, bit in enumerate(target):
+        if bit == "0":
+            circuit.x(i)
+    
+    return circuit
+
+oracle = grover_oracle(3, "101")
+```
+
+### Method Chaining
+
+```python
+# Build complex circuits with fluent API
+circuit = (QuantumCircuit(4)
+    .h(0).h(1).h(2).h(3)          # Initial superposition
+    .cnot(0, 1).cnot(2, 3)        # Entangle pairs
+    .rz(1, math.pi/4)             # Phase rotation
+    .cz(1, 2)                     # Controlled-Z
+    .barrier()                     # Logical separation
+    .h(0).h(1).h(2).h(3))         # Final Hadamards
+
+print(f"Circuit depth: {circuit.depth()}")
+```
+
+## Data Structure
+
+### CircuitInstruction
+
+Internal dataclass for gate instructions:
+
+```python
+@dataclass
+class CircuitInstruction:
+    gate_name: str                          # Gate identifier
+    targets: List[int]                      # Qubit indices
+    params: Optional[Dict[str, float]]      # Gate parameters
+```
+
+Accessed via `circuit._instructions` (list of instructions).
+
+## Gate Registry
+
+All gates are registered in the global `_GATE_REGISTRY` dictionary. To add custom gates:
+
+```python
+from quantum_computer import register_gate, IQuantumGate
+
+class CustomGate(IQuantumGate):
+    @property
+    def name(self) -> str:
+        return "CUSTOM"
+    
+    def apply(self, state, backend, targets, params):
+        # Implementation
+        return state
+
+register_gate("CUSTOM", CustomGate())
+
+# Use in circuit
+circuit._append("CUSTOM", [0, 1], {"param": 1.0})
+```
+
+## See Also
+
+- [QuantumComputer](/api/quantum-computer) - Execute circuits
+- [JointHilbertState](/api/hilbert-state) - Understand state representation

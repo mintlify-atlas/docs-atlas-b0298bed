@@ -1,0 +1,489 @@
+---
+title: 'Quantum State Visualization'
+description: 'Visualize quantum states, circuits, and evolution'
+---
+
+# Quantum State Visualization
+
+The QC project includes two powerful visualization tools: `quantum_visualizer.py` for circuit evolution and `orbital_visualizer2.py` for hydrogen orbitals.
+
+## Quantum Circuit Visualizer
+
+### Quick Start
+
+```bash
+python quantum_visualizer.py --run-all --output-dir download
+```
+
+This runs all standard visualizations:
+- Bell state
+- GHZ state (3 qubits)
+- Quantum Fourier Transform
+- Grover's algorithm
+
+### Command Line Options
+
+```bash
+python quantum_visualizer.py \
+    --bell                    # Visualize Bell state
+    --ghz                     # Visualize GHZ state
+    --qft                     # Visualize QFT
+    --grover                  # Visualize Grover
+    --n-qubits 3             # Number of qubits (default: 3)
+    --grid-size 16           # Model grid size
+    --hidden-dim 32          # Hidden dimension
+    --hamiltonian-checkpoint hamiltonian.pth \
+    --schrodinger-checkpoint checkpoint_phase3.pth \
+    --device cpu             # Use CPU or CUDA
+    --output-dir download    # Output directory
+```
+
+### Visualization Features
+
+From `quantum_visualizer.py:108-153`, the visualizer provides:
+
+- **Grid size**: 16x16 (neural network grid)
+- **Figure size**: 24" × 20" at 150 DPI = 3600 × 3000 pixels
+- **Colormaps**: 
+  - Primary: `inferno`
+  - Secondary: `viridis`
+  - Phase: `twilight`
+- **Background**: `#000008` (dark)
+
+## Programmatic Usage
+
+<Steps>
+  <Step title="Initialize visualizer">
+    ```python
+    from quantum_visualizer import QuantumVisualizer, VisualizerConfig
+    
+    config = VisualizerConfig(
+        grid_size=16,
+        hidden_dim=32,
+        expansion_dim=64,
+        hamiltonian_checkpoint="hamiltonian.pth",
+        schrodinger_checkpoint="checkpoint_phase3.pth",
+        device="cpu",
+        output_dir="download",
+        figure_dpi=150,
+        figure_size_x=24,
+        figure_size_y=20
+    )
+    
+    visualizer = QuantumVisualizer(config)
+    ```
+  </Step>
+
+  <Step title="Visualize standard circuits">
+    ```python
+    # Bell state
+    result = visualizer.visualize_bell_state()
+    print(f"Saved to: {result.output_path}")
+    print(f"Entropy: {result.snapshots[-1].entropy:.4f} bits")
+    
+    # GHZ state
+    result = visualizer.visualize_ghz_state(n_qubits=3)
+    
+    # QFT
+    result = visualizer.visualize_qft(n_qubits=3)
+    
+    # Grover
+    result = visualizer.visualize_grover(
+        n_qubits=3,
+        marked_state=5  # Search for |101⟩
+    )
+    ```
+  </Step>
+
+  <Step title="Custom circuits">
+    ```python
+    gates = [
+        ("H", [0], {}),
+        ("CNOT", [0, 1], {}),
+        ("Rz", [1], {"theta": 0.5}),
+        ("CZ", [0, 1], {}),
+    ]
+    
+    result = visualizer.visualize_custom_circuit(
+        gates=gates,
+        n_qubits=2,
+        name="custom_entanglement"
+    )
+    ```
+  </Step>
+</Steps>
+
+## Visualization Components
+
+### Probability Bar Chart
+
+From `quantum_visualizer.py:196-224`:
+
+```python
+class ProbabilityBarRenderer:
+    def render(self, data: QuantumStateSnapshot, axes, config):
+        probs = data.probabilities
+        bitstrings = [format(i, f'0{n_qubits}b') for i in range(len(probs))]
+        
+        axes.bar(indices, probs, color=colors)
+        axes.set_xticklabels(bitstrings, rotation=45)
+        axes.set_ylabel('Probability')
+        axes.set_title(f'Step {data.step}: {data.gate_name}')
+```
+
+### Bloch Sphere
+
+From `quantum_visualizer.py:227-255`:
+
+```python
+class BlochSphereRenderer:
+    def render(self, data: QuantumStateSnapshot, axes, config):
+        # Draw sphere surface
+        u = np.linspace(0, 2*np.pi, 50)
+        v = np.linspace(0, np.pi, 50)
+        x = np.outer(np.cos(u), np.sin(v))
+        y = np.outer(np.sin(u), np.sin(v))
+        z = np.outer(np.ones(np.size(u)), np.cos(v))
+        axes.plot_surface(x, y, z, alpha=0.1, color='gray')
+        
+        # Draw state vectors
+        for i, (bx, by, bz) in enumerate(data.bloch_vectors):
+            axes.quiver(0, 0, 0, bx, by, bz, 
+                       color=colors[i], arrow_length_ratio=0.15)
+```
+
+### Phase Space Plot
+
+From `quantum_visualizer.py:258-288`:
+
+```python
+class PhasePlotRenderer:
+    def render(self, data: QuantumStateSnapshot, axes, config):
+        phases = data.phases
+        probs = data.probabilities
+        
+        # Complex plane representation
+        x = probs * np.cos(phases)
+        y = probs * np.sin(phases)
+        
+        scatter = axes.scatter(x, y, c=phases, 
+                              cmap='twilight', s=probs*500)
+        
+        # Unit circle
+        circle = Circle((0, 0), 1, fill=False, linestyle='--')
+        axes.add_patch(circle)
+```
+
+### Entropy Evolution
+
+From `quantum_visualizer.py:291-310`:
+
+```python
+class EntropyPlotRenderer:
+    def render(self, snapshots: List[QuantumStateSnapshot], axes, config):
+        steps = [s.step for s in snapshots]
+        entropies = [s.entropy for s in snapshots]
+        
+        axes.plot(steps, entropies, 'o-', linewidth=2)
+        axes.fill_between(steps, entropies, alpha=0.3)
+        
+        max_entropy = max(entropies)
+        axes.axhline(y=max_entropy, linestyle='--', 
+                    label=f'Max: {max_entropy:.3f}')
+```
+
+## Orbital Visualizer
+
+### Command Line Usage
+
+```bash
+python orbital_visualizer2.py
+```
+
+Interactive mode:
+
+```
+HYDROGEN ORBITAL VISUALIZER
+Image size: 3600x2700 pixels
+==================================================
+
+Orbitals: ['1s', '2s', '2p_z', '2p_x', '2p_y', '3s', ...]
+
+Orbital (or 'q'): 2p_z
+Particles [default=100000]: 200000
+Save? [y/N]: y
+```
+
+### Available Orbitals
+
+From `orbital_visualizer2.py:420-430`:
+
+```python
+ORBITALS = {
+    '1s': (1, 0, 0),
+    '2s': (2, 0, 0),
+    '2p_z': (2, 1, 0), '2p_x': (2, 1, 1), '2p_y': (2, 1, -1),
+    '3s': (3, 0, 0),
+    '3p_z': (3, 1, 0), '3p_x': (3, 1, 1), '3p_y': (3, 1, -1),
+    '3d_z2': (3, 2, 0), '3d_xz': (3, 2, 1), '3d_yz': (3, 2, -1),
+    '3d_xy': (3, 2, 2), '3d_x2-y2': (3, 2, -2),
+    '4s': (4, 0, 0), '4p_z': (4, 1, 0), '4d_z2': (4, 2, 0),
+    '4f_z3': (4, 3, 0), '4f_xz2': (4, 3, 1), '4f_yz2': (4, 3, -1),
+    '5s': (5, 0, 0), '5p_z': (5, 1, 0), '5d_z2': (5, 2, 0)
+}
+```
+
+### Programmatic Orbital Visualization
+
+```python
+from orbital_visualizer2 import (
+    Config, MonteCarloSampler, OrbitalVisualizer,
+    HamiltonianNNProcessor, WavefunctionCalculator
+)
+
+# Optional: load Hamiltonian model
+try:
+    from schrodinger_crystal_fixed2 import HamiltonianInferenceEngine
+    engine = HamiltonianInferenceEngine(Config)
+    hamiltonian_processor = HamiltonianNNProcessor(engine)
+except:
+    hamiltonian_processor = None
+
+# Sample orbital
+sampler = MonteCarloSampler(hamiltonian_processor)
+data = sampler.sample(
+    n=2,  # Principal quantum number
+    l=1,  # Angular momentum
+    m=0,  # Magnetic quantum number
+    num_samples=100000
+)
+
+# Visualize
+visualizer = OrbitalVisualizer()
+visualizer.visualize(
+    data,
+    save_path="orbital_2p_z.png",
+    hamiltonian_processor=hamiltonian_processor
+)
+```
+
+## Monte Carlo Sampling
+
+From `orbital_visualizer2.py:161-262`:
+
+<Tabs>
+  <Tab title="Rejection Sampling">
+    ```python
+    # Find maximum probability
+    P_max = max over (r, theta, phi) of |ψ(r,θ,φ)|² r² sin(θ)
+    
+    # Rejection sampling loop
+    while len(points) < num_samples:
+        # Generate random spherical coordinates
+        r = r_max * (uniform(0,1))^(1/3)      # Volume element
+        theta = arccos(1 - 2*uniform(0,1))    # Uniform on sphere
+        phi = uniform(0, 2π)
+        
+        # Compute wavefunction
+        R = radial_wavefunction(n, l, r)
+        Y = spherical_harmonic(l, m, theta, phi)
+        psi = R * Y
+        
+        # Probability density with volume element
+        prob = |psi|² * r² * sin(theta)
+        
+        # Accept/reject
+        if uniform(0, P_max) < prob:
+            accept point (r, theta, phi)
+    ```
+  </Tab>
+
+  <Tab title="Energy Calculation">
+    If Hamiltonian model is loaded:
+    
+    ```python
+    # Project wavefunction onto 2D grid
+    psi_grid = WavefunctionCalculator.psi_on_grid(n, l, m, 16)
+    
+    # Apply Hamiltonian using neural network
+    with torch.no_grad():
+        H_psi = engine.apply_hamiltonian(psi_grid)
+    
+    # Compute expectation value
+    E_nn = <psi|H|psi> / <psi|psi>
+    E_analytical = -0.5 / n²
+    
+    print(f"E_NN: {E_nn:.6f}")
+    print(f"E_analytical: {E_analytical:.6f}")
+    print(f"Difference: {abs(E_nn - E_analytical):.6f}")
+    ```
+  </Tab>
+</Tabs>
+
+## Visualization Output
+
+### Quantum Circuit Visualization
+
+Each output includes:
+
+1. **Evolution Figure** (3x4 grid):
+   - Row 1: Probability distributions at 4 timesteps
+   - Row 2: Bloch spheres at 4 timesteps
+   - Row 3: Phase space plots at 4 timesteps
+
+2. **Summary Figure** (2x3 grid):
+   - Entropy evolution
+   - Backend comparison
+   - Final probability distribution
+   - Final Bloch sphere
+   - Final phase space
+   - Backend fidelity comparison
+
+### Orbital Visualization
+
+Each output includes (2x2 grid):
+
+1. **3D scatter plot**: Particle positions colored by phase
+2. **XY projection**: Top-down view with probability density
+3. **XZ projection**: Side view with probability density
+4. **Info panel**: Statistics and energy levels
+
+### File Naming
+
+```python
+# Circuit visualizations
+bell_state_visualization.png
+ghz_3q_visualization.png
+qft_3q_visualization.png
+grover_3q_m5_visualization.png
+
+# Orbital visualizations
+orbital_2p_z_100000.png
+orbital_3d_z2_200000.png
+```
+
+## Configuration
+
+<CodeGroup>
+```python Visualizer Config
+from quantum_visualizer import VisualizerConfig
+
+config = VisualizerConfig(
+    # Model
+    grid_size=16,
+    hidden_dim=32,
+    expansion_dim=64,
+    
+    # Checkpoints
+    hamiltonian_checkpoint="hamiltonian.pth",
+    schrodinger_checkpoint="checkpoint_phase3.pth",
+    dirac_checkpoint="best_dirac.pth",
+    
+    # Output
+    figure_dpi=150,
+    figure_size_x=24,  # inches
+    figure_size_y=20,
+    output_dir="download",
+    
+    # Visualization
+    colormap_primary="inferno",
+    colormap_secondary="viridis",
+    colormap_phase="twilight",
+    background_color="#000008",
+    
+    # Algorithm parameters
+    n_qubits_default=3,
+    grover_iterations=2,
+    grover_marked_state=5
+)
+```
+
+```python Orbital Config
+from orbital_visualizer2 import Config
+
+class Config:
+    # Model
+    GRID_SIZE = 16
+    HIDDEN_DIM = 32
+    
+    # Visualization
+    FIGURE_DPI = 150
+    FIGURE_SIZE_X = 24  # 3600 pixels
+    FIGURE_SIZE_Y = 18  # 2700 pixels
+    
+    # Monte Carlo
+    MONTE_CARLO_BATCH_SIZE = 100000
+    MONTE_CARLO_MAX_PARTICLES = 2000000
+    MONTE_CARLO_MIN_PARTICLES = 5000
+    
+    # Display
+    HISTOGRAM_BINS = 300
+    SCATTER_SIZE_MIN = 1.0
+    SCATTER_SIZE_MAX = 8.0
+```
+</CodeGroup>
+
+## Backend Comparison
+
+The visualizer compares three physics backends (quantum_visualizer.py:428-454):
+
+```python
+def compare_backends(gates, n_qubits):
+    results = []
+    
+    for backend_name in ["hamiltonian", "schrodinger", "dirac"]:
+        snapshots = execute_sequence(gates, n_qubits, backend_name)
+        final = snapshots[-1]
+        
+        # Compute fidelity with first backend (reference)
+        if reference_probs is None:
+            reference_probs = final.probabilities
+            fidelity = 1.0
+        else:
+            # Quantum state fidelity: F = |⟨ψ|φ⟩|²
+            fidelity = float(
+                np.sum(np.sqrt(reference_probs * final.probabilities))**2
+            )
+        
+        results.append(BackendComparisonResult(
+            backend_name=backend_name,
+            probabilities=final.probabilities,
+            entropy=final.entropy,
+            fidelity_with_reference=fidelity
+        ))
+    
+    return results
+```
+
+## Performance Considerations
+
+<AccordionGroup>
+  <Accordion title="Memory usage">
+    - Grid size 16x16: Minimal memory
+    - 3 qubits = 8 basis states × (2, 16, 16) tensor
+    - Orbital sampling: ~200MB for 1M particles
+  </Accordion>
+
+  <Accordion title="Rendering time">
+    - Bell state: ~2-3 seconds
+    - Grover (3 qubits): ~5-10 seconds
+    - Orbital 2p (100k particles): ~10-15 seconds
+    - Orbital 4f (1M particles): ~60-90 seconds
+  </Accordion>
+
+  <Accordion title="Output size">
+    - PNG at 150 DPI, 24"×20": ~2-5 MB
+    - Compressed well due to dark background
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quantum Algorithms" icon="atom" href="/guides/quantum-algorithms">
+    Implement circuits to visualize
+  </Card>
+  <Card title="Relativistic Hydrogen" icon="rocket" href="/guides/relativistic-hydrogen">
+    Visualize Dirac equation solutions
+  </Card>
+</CardGroup>

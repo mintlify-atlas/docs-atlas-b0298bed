@@ -1,0 +1,326 @@
+---
+title: "MolecularSimulator"
+description: "VQE-UCCSD molecular quantum simulation with OpenFermion Jordan-Wigner Hamiltonian"
+---
+
+## Overview
+
+The `MolecularSimulator` class provides variational quantum eigensolver (VQE) functionality for molecular quantum chemistry simulations using the UCCSD (Unitary Coupled Cluster Singles and Doubles) ansatz.
+
+## Classes
+
+### MoleculeData
+
+Data structure for molecular configurations.
+
+**Attributes:**
+- `name` (str): Molecule identifier (e.g., "H2")
+- `n_electrons` (int): Number of electrons
+- `n_orbitals` (int): Number of molecular orbitals
+- `n_qubits` (int): Number of qubits required
+- `h_core` (np.ndarray): Core Hamiltonian matrix
+- `eri` (np.ndarray): Electron repulsion integrals
+- `nuclear_repulsion` (float): Nuclear repulsion energy in Hartree
+- `fci_energy` (float): Full CI (exact) energy in Hartree
+- `hf_energy` (float): Hartree-Fock energy in Hartree
+- `description` (str): Molecule description
+
+### VQESolver
+
+Variational Quantum Eigensolver with UCCSD ansatz.
+
+**Constructor:**
+```python
+VQESolver(qc: QuantumComputer, config: SimulatorConfig)
+```
+
+**Parameters:**
+- `qc`: Quantum computer instance
+- `config`: Simulator configuration
+
+**Methods:**
+
+#### run()
+
+```python
+def run(
+    mol: MoleculeData,
+    backend: str = "hamiltonian",
+    max_iter: int = 200,
+    tol: float = 1e-8
+) -> VQEResult
+```
+
+Execute VQE optimization for a molecule.
+
+**Parameters:**
+- `mol`: Molecule data structure
+- `backend`: Physics backend ("hamiltonian", "schrodinger", "dirac")
+- `max_iter`: Maximum optimization iterations (default: `200`)
+- `tol`: Convergence tolerance (default: `1e-8`)
+
+**Returns:** `VQEResult` with optimized energy and parameters
+
+### VQEResult
+
+Results from VQE optimization.
+
+**Attributes:**
+- `molecule` (str): Molecule name
+- `backend` (str): Backend used
+- `n_qubits` (int): Number of qubits
+- `n_parameters` (int): Number of variational parameters
+- `vqe_energy` (float): Optimized VQE energy in Hartree
+- `hf_energy` (float): Hartree-Fock energy in Hartree
+- `fci_energy` (float): Full CI energy in Hartree
+- `correlation_energy_captured` (float): Fraction of correlation energy recovered (0.0-1.0)
+- `optimal_thetas` (np.ndarray): Optimized UCCSD parameters
+- `n_iterations` (int): Number of optimizer iterations
+- `converged` (bool): Whether optimization converged
+- `energy_error` (float): |VQE - FCI| in Hartree
+
+### ExactJWEnergy
+
+Exact energy evaluator using OpenFermion Jordan-Wigner transformation.
+
+**Constructor:**
+```python
+ExactJWEnergy(mol: MoleculeData, n_qubits: int)
+```
+
+**Methods:**
+
+#### __call__()
+
+```python
+def __call__(amps: torch.Tensor) -> float
+```
+
+Compute exact energy expectation value.
+
+**Parameters:**
+- `amps`: Quantum state amplitudes tensor `(2^n, 2, G, G)` or `(2^n, 2)`
+
+**Returns:** Energy in Hartree
+
+## Supported Molecules
+
+The `MOLECULES` dictionary contains pre-configured molecular systems:
+
+### H2 (Hydrogen Molecule)
+
+- **Formula:** H2
+- **Bond length:** 0.735 Å
+- **Electrons:** 2
+- **Orbitals:** 2 (minimal basis STO-3G)
+- **Qubits:** 4
+- **Nuclear repulsion:** 0.71997 Hartree
+- **HF energy:** -1.11675928 Hartree
+- **FCI energy:** -1.13728383 Hartree
+- **Basis set:** STO-3G
+
+**Usage:**
+```python
+from molecular_sim import MOLECULES
+mol = MOLECULES["H2"]
+```
+
+## UCCSD Ansatz
+
+The UCCSD (Unitary Coupled Cluster Singles and Doubles) ansatz generates quantum circuits for molecular simulation:
+
+```python
+def uccsd(
+    state: JointHilbertState,
+    thetas: np.ndarray,
+    singles: List[Tuple[int, int]],
+    doubles: List[Tuple[int, int, int, int]],
+    backend: IPhysicsBackend,
+    runner: Callable
+) -> JointHilbertState
+```
+
+**Parameters:**
+- `state`: Initial quantum state (typically Hartree-Fock)
+- `thetas`: Variational parameters for excitations
+- `singles`: List of single excitations `(occupied, virtual)`
+- `doubles`: List of double excitations `(occ1, occ2, virt1, virt2)`
+- `backend`: Physics backend for evolution
+- `runner`: Circuit execution function
+
+**Behavior:**
+- `theta=0` returns identity (no excitation)
+- Singles: CNOT ladder with RY rotation
+- Doubles: Givens rotation in excitation subspace
+- Preserves particle number
+
+## Functions
+
+### prepare_hf()
+
+```python
+def prepare_hf(
+    mol: MoleculeData,
+    factory: JointStateFactory,
+    backend: IPhysicsBackend
+) -> JointHilbertState
+```
+
+Prepare Hartree-Fock initial state.
+
+**Parameters:**
+- `mol`: Molecule data
+- `factory`: State factory for initialization
+- `backend`: Physics backend
+
+**Returns:** HF state with first `n_electrons` qubits in |1⟩
+
+### build_jw_hamiltonian_of()
+
+```python
+def build_jw_hamiltonian_of(
+    mol: MoleculeData
+) -> Tuple[List, float, bool, int]
+```
+
+Build Jordan-Wigner Hamiltonian using OpenFermion and PySCF.
+
+**Parameters:**
+- `mol`: Molecule data structure
+
+**Returns:**
+- `paulis`: List of `(coefficient, pauli_string)` tuples
+- `e_nuc`: Nuclear repulsion energy
+- `success`: Whether construction succeeded
+- `hf_idx`: Hartree-Fock state index in computational basis
+
+**Requirements:**
+- OpenFermion
+- OpenFermion-PySCF
+- PySCF
+
+## Example Usage
+
+### Basic VQE Calculation
+
+```python
+from quantum_computer import QuantumComputer, SimulatorConfig
+from molecular_sim import VQESolver, MOLECULES
+
+# Configure simulator
+config = SimulatorConfig(
+    grid_size=16,
+    hidden_dim=32,
+    hamiltonian_checkpoint="hamiltonian.pth",
+    device="cpu"
+)
+
+# Initialize quantum computer and solver
+qc = QuantumComputer(config)
+solver = VQESolver(qc, config)
+
+# Run VQE for H2
+mol = MOLECULES["H2"]
+result = solver.run(
+    mol,
+    backend="hamiltonian",
+    max_iter=100
+)
+
+print(result)
+# VQE Result: H2  [hamiltonian]
+# Qubits: 4
+# Parameters: 2
+# HF energy  : -1.11675928 Ha
+# VQE energy : -1.13728123 Ha
+# FCI energy : -1.13728383 Ha
+# |VQE-FCI|  : 2.60e-06 Ha
+# Correlation: 100.0%
+```
+
+### Custom Molecule
+
+```python
+import numpy as np
+from molecular_sim import MoleculeData
+
+# Define custom molecule
+custom_mol = MoleculeData(
+    name="LiH",
+    n_electrons=4,
+    n_orbitals=6,
+    n_qubits=12,
+    h_core=my_h_core,
+    eri=my_eri,
+    nuclear_repulsion=0.995,
+    fci_energy=-7.882,
+    hf_energy=-7.863,
+    description="LiH STO-3G"
+)
+
+result = solver.run(custom_mol, max_iter=200)
+```
+
+## Jordan-Wigner Transformation
+
+The molecular Hamiltonian is mapped to qubits using the Jordan-Wigner transformation:
+
+$$
+H = \sum_{pq} h_{pq} a^\dagger_p a_q + \frac{1}{2}\sum_{pqrs} h_{pqrs} a^\dagger_p a^\dagger_q a_r a_s + E_{\text{nuc}}
+$$
+
+is transformed to:
+
+$$
+H_{\text{JW}} = \sum_i c_i P_i + E_{\text{nuc}}
+$$
+
+where $P_i$ are Pauli strings (products of $X, Y, Z$ operators).
+
+## Optimization Details
+
+### Parameter Initialization
+
+1. All parameters start at zero (identity circuit)
+2. Initial scan of first double amplitude `θ_d ∈ [-0.5, 0.5]`
+3. Best value from scan used as starting point
+
+### Optimizer
+
+- **Method:** L-BFGS-B (scipy.optimize.minimize)
+- **Gradient:** Finite differences with `eps=1e-5`
+- **Convergence:** `ftol` (default `1e-8`), `gtol=1e-7`
+
+### Cost Function
+
+```python
+def cost(thetas: np.ndarray) -> float:
+    state = uccsd(hf_state, thetas, singles, doubles, backend, runner)
+    return exact_eval(state.amplitudes)  # Energy in Hartree
+```
+
+## Performance
+
+### H2 Typical Results
+
+- **Iterations:** 30-50
+- **Time:** 5-10 minutes (CPU, 16x16 grid)
+- **Accuracy:** |VQE - FCI| < 1e-5 Hartree
+- **Correlation captured:** 99.9%+
+
+## Dependencies
+
+- `torch`: Neural network backends
+- `numpy`: Numerical arrays
+- `scipy`: Optimization
+- `openfermion`: Jordan-Wigner transformation
+- `openfermionpyscf`: PySCF integration
+- `pyscf`: Quantum chemistry calculations
+
+## Notes
+
+- The exact evaluator verifies Hartree-Fock state before optimization
+- Hamiltonian construction uses OpenFermion for consistency
+- UCCSD preserves particle number (electron count)
+- All energies reported in atomic units (Hartree)
+- 1 Hartree = 27.2114 eV = 627.509 kcal/mol

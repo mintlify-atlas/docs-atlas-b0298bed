@@ -1,0 +1,464 @@
+---
+title: "Configuration"
+description: "Simulator configuration for quantum computing and molecular simulation"
+---
+
+## Overview
+
+Configuration classes for controlling quantum simulation parameters, neural network backends, and physics settings.
+
+## Classes
+
+### SimulatorConfig
+
+Main configuration for quantum computer simulator.
+
+**Location:** `quantum_computer.py`
+
+**Constructor:**
+```python
+@dataclass
+class SimulatorConfig:
+    # Grid and network architecture
+    grid_size: int = 16
+    hidden_dim: int = 32
+    expansion_dim: int = 64
+    num_spectral_layers: int = 2
+    
+    # Dirac physics
+    dirac_mass: float = 1.0
+    dirac_c: float = 1.0
+    gamma_representation: str = "dirac"
+    
+    # Evolution parameters
+    dt: float = 0.01
+    normalization_eps: float = 1e-8
+    potential_depth: float = 5.0
+    potential_width: float = 0.3
+    
+    # Checkpoint paths
+    hamiltonian_checkpoint: str = "weights/latest.pth"
+    schrodinger_checkpoint: str = "weights/schrodinger_crystal_final.pth"
+    dirac_checkpoint: str = "weights/dirac_phase5_latest.pth"
+    
+    # Hardware
+    device: str = "cuda" if torch.cuda.is_available() else "cpu"
+    random_seed: int = 42
+    max_qubits: int = 8
+```
+
+**Parameters:**
+
+#### Grid and Network Architecture
+
+- **grid_size** (int): Spatial grid resolution for wavefunctions
+  - Default: `16`
+  - Must match checkpoint training configuration
+  - Wavefunction shape: `(2, grid_size, grid_size)`
+  - Memory scales as `O(2^n × grid_size²)`
+
+- **hidden_dim** (int): Hidden layer dimension for neural networks
+  - Default: `32`
+  - Must match checkpoint
+  - Used in Hamiltonian, Schrodinger, and Dirac networks
+
+- **expansion_dim** (int): Expansion layer dimension
+  - Default: `64`
+  - Used in Schrodinger and Dirac networks
+  - Larger values increase expressiveness but slow inference
+
+- **num_spectral_layers** (int): Number of spectral convolution layers
+  - Default: `2`
+  - Must match checkpoint
+  - More layers = more accurate but slower
+
+#### Dirac Physics
+
+- **dirac_mass** (float): Fermion rest mass
+  - Default: `1.0` (atomic units)
+  - Used in Dirac backend evolution
+
+- **dirac_c** (float): Speed of light
+  - Default: `1.0` (atomic units)
+  - Physical value: `137.035999084` (fine structure constant α⁻¹)
+
+- **gamma_representation** (str): Dirac gamma matrix convention
+  - Default: `"dirac"`
+  - Options: `"dirac"`, `"weyl"`
+  - Affects spinor component mixing
+
+#### Evolution Parameters
+
+- **dt** (float): Time step for evolution operators
+  - Default: `0.01`
+  - Smaller values = more accurate but slower
+  - Used in Hamiltonian backend: `ψ(t+dt) ≈ ψ(t) - i·dt·H·ψ(t)`
+
+- **normalization_eps** (float): Numerical stability epsilon
+  - Default: `1e-8`
+  - Added to norm before division: `ψ / (||ψ|| + eps)`
+  - Prevents division by zero
+
+- **potential_depth** (float): Eigenstate potential magnitude
+  - Default: `5.0`
+  - Scales amplitude initialization potentials
+
+- **potential_width** (float): Potential spatial width
+  - Default: `0.3`
+  - Controls double-well and Coulomb potential shapes
+
+#### Checkpoint Paths
+
+- **hamiltonian_checkpoint** (str): Path to Hamiltonian network weights
+  - Default: `"weights/latest.pth"`
+  - Required for all backends (used as fallback)
+
+- **schrodinger_checkpoint** (str): Path to Schrodinger network weights
+  - Default: `"weights/schrodinger_crystal_final.pth"`
+  - Optional: falls back to Hamiltonian if missing
+
+- **dirac_checkpoint** (str): Path to Dirac network weights
+  - Default: `"weights/dirac_phase5_latest.pth"`
+  - Optional: uses analytical Dirac if missing
+
+#### Hardware
+
+- **device** (str): PyTorch device for computation
+  - Default: `"cuda"` if available, else `"cpu"`
+  - Options: `"cpu"`, `"cuda"`, `"cuda:0"`, etc.
+
+- **random_seed** (int): Random number generator seed
+  - Default: `42`
+  - Ensures reproducible eigenstate initialization
+
+- **max_qubits** (int): Maximum number of qubits supported
+  - Default: `8`
+  - Memory limit: `2^max_qubits × 2 × grid_size × grid_size × sizeof(float32)`
+  - Example: 8 qubits, 16×16 grid ≈ 512 MB
+
+**Example:**
+```python
+from quantum_computer import SimulatorConfig, QuantumComputer
+
+config = SimulatorConfig(
+    grid_size=32,              # Higher resolution
+    hidden_dim=64,             # Larger network
+    device="cuda",             # GPU acceleration
+    hamiltonian_checkpoint="models/hamiltonian_32x32.pth",
+    random_seed=12345
+)
+
+qc = QuantumComputer(config)
+```
+
+### FrameworkConfig
+
+Extended configuration for molecular and visualization modules.
+
+**Location:** `quantum_simulator.py`
+
+**Constructor:**
+```python
+@dataclass
+class FrameworkConfig:
+    # Inherits all SimulatorConfig parameters, plus:
+    
+    # Fine structure physics
+    c_light: float = 137.035999084        # Speed of light (α⁻¹)
+    alpha_fs: float = 0.0072973525693     # Fine structure constant
+    hbar: float = 1.0                     # Reduced Planck constant
+    electron_mass: float = 1.0            # Electron mass
+    
+    # Monte Carlo sampling
+    mc_batch_size: int = 100000
+    mc_max_particles: int = 2000000
+    mc_min_particles: int = 5000
+    r_max_factor: float = 4.0
+    r_max_offset: float = 10.0
+    prob_safety_factor: float = 1.05
+    
+    # Grid search for rejection sampling
+    grid_search_r: int = 300
+    grid_search_theta: int = 150
+    grid_search_phi: int = 150
+    
+    # Visualization
+    figure_dpi: int = 150
+    figure_size_x: int = 24               # Inches
+    figure_size_y: int = 20               # Inches
+    histogram_bins: int = 300
+    scatter_size_min: float = 1.0
+    scatter_size_max: float = 8.0
+    background_color: str = "#000008"
+    
+    # Output
+    output_dir: str = "download"
+    default_num_samples: int = 100000
+    
+    # Advanced physics
+    zbw_time_steps: int = 1000
+    zbw_dt: float = 0.001
+    zbw_packet_width: float = 0.1
+    fine_structure_orders: int = 4
+```
+
+**Additional Parameters:**
+
+#### Fine Structure Physics
+
+- **c_light** (float): Speed of light in atomic units
+  - Default: `137.035999084`
+  - Equal to `1/α` where α is fine structure constant
+
+- **alpha_fs** (float): Fine structure constant
+  - Default: `0.0072973525693` (≈ 1/137)
+  - Determines relativistic corrections
+
+- **hbar** (float): Reduced Planck constant ℏ
+  - Default: `1.0` (atomic units)
+
+- **electron_mass** (float): Electron rest mass
+  - Default: `1.0` (atomic units)
+
+#### Monte Carlo Sampling
+
+- **mc_batch_size** (int): Samples per batch in rejection sampling
+  - Default: `100000`
+  - Larger = more efficient but more memory
+
+- **mc_max_particles** (int): Maximum particles to accept
+  - Default: `2000000`
+  - Hard limit on output size
+
+- **mc_min_particles** (int): Minimum particles to attempt
+  - Default: `5000`
+  - Lower bound on sampling
+
+- **r_max_factor** (float): Radial cutoff scaling
+  - Default: `4.0`
+  - Formula: `r_max = r_max_factor × n² + r_max_offset`
+
+- **r_max_offset** (float): Radial cutoff offset (Bohr radii)
+  - Default: `10.0`
+
+- **prob_safety_factor** (float): Rejection threshold multiplier
+  - Default: `1.05`
+  - Ensures `P_threshold > P_max` for stability
+
+#### Grid Search
+
+- **grid_search_r** (int): Radial grid points for P_max search
+  - Default: `300`
+
+- **grid_search_theta** (int): Polar angle grid points
+  - Default: `150`
+
+- **grid_search_phi** (int): Azimuthal angle grid points
+  - Default: `150`
+
+#### Visualization
+
+- **figure_dpi** (int): Dots per inch for output images
+  - Default: `150`
+  - Final resolution: `dpi × (size_x, size_y)` pixels
+
+- **figure_size_x, figure_size_y** (int): Figure dimensions in inches
+  - Default: `24 × 20`
+  - Output: `3600 × 3000` pixels at 150 DPI
+
+- **histogram_bins** (int): Projection histogram resolution
+  - Default: `300`
+
+- **scatter_size_min, scatter_size_max** (float): 3D point size range
+  - Default: `1.0` to `8.0`
+  - Size scales with probability density
+
+- **background_color** (str): Figure background color
+  - Default: `"#000008"` (dark blue)
+
+#### Output
+
+- **output_dir** (str): Directory for saved visualizations
+  - Default: `"download"`
+
+- **default_num_samples** (int): Default Monte Carlo particle count
+  - Default: `100000`
+
+#### Advanced Physics
+
+- **zbw_time_steps** (int): Zitterbewegung simulation steps
+  - Default: `1000`
+
+- **zbw_dt** (float): Zitterbewegung time step
+  - Default: `0.001`
+
+- **zbw_packet_width** (float): Initial wave packet width
+  - Default: `0.1`
+
+- **fine_structure_orders** (int): Perturbation expansion orders
+  - Default: `4`
+
+**Loading from TOML:**
+```python
+from quantum_simulator import FrameworkConfig
+
+config = FrameworkConfig.from_toml("config.toml")
+```
+
+**Example TOML file:**
+```toml
+[simulation]
+random_seed = 12345
+max_qubits = 10
+default_num_samples = 500000
+
+[grid]
+size = 32
+hidden_dim = 64
+expansion_dim = 128
+num_spectral_layers = 3
+
+[physics]
+c_light = 137.035999084
+alpha_fs = 0.0072973525693
+dt = 0.005
+
+[monte_carlo]
+batch_size = 200000
+max_particles = 5000000
+
+[visualization]
+figure_dpi = 200
+figure_size_x = 32
+figure_size_y = 24
+
+[checkpoints]
+hamiltonian = "models/h_32x32.pth"
+schrodinger = "models/s_32x32.pth"
+dirac = "models/d_32x32.pth"
+```
+
+## Configuration Validation
+
+### Checkpoint Compatibility
+
+Network architecture parameters (`grid_size`, `hidden_dim`, `expansion_dim`, `num_spectral_layers`) **must** match the values used during checkpoint training. Mismatch causes:
+
+```python
+RuntimeError: Error(s) in loading state_dict for HamiltonianBackboneNet:
+    size mismatch for input_proj.weight: copying a param with shape 
+    torch.Size([32, 1, 1, 1]) from checkpoint, the shape in current model is 
+    torch.Size([64, 1, 1, 1]).
+```
+
+**Solution:** Use correct architecture or retrain checkpoints.
+
+### Memory Requirements
+
+Memory usage per state:
+```
+M = 2^n_qubits × 2 × grid_size × grid_size × 4 bytes
+```
+
+| Qubits | Grid | Memory   | Notes                 |
+|--------|------|----------|-----------------------|
+| 2      | 16   | 8 KB     | Minimal               |
+| 4      | 16   | 128 KB   | Typical               |
+| 6      | 16   | 2 MB     | Manageable            |
+| 8      | 16   | 32 MB    | Large (default max)   |
+| 10     | 16   | 512 MB   | Very large            |
+| 8      | 32   | 128 MB   | High resolution       |
+| 10     | 32   | 2 GB     | Limit for 16 GB RAM   |
+
+### Device Selection
+
+Automatic GPU detection:
+```python
+config = SimulatorConfig()  # Uses GPU if available
+print(config.device)  # "cuda" or "cpu"
+```
+
+Force CPU:
+```python
+config = SimulatorConfig(device="cpu")
+```
+
+Multi-GPU:
+```python
+config = SimulatorConfig(device="cuda:1")  # Use GPU 1
+```
+
+## Example Usage
+
+### Basic Configuration
+
+```python
+from quantum_computer import QuantumComputer, SimulatorConfig
+
+config = SimulatorConfig(
+    grid_size=16,
+    hamiltonian_checkpoint="hamiltonian.pth",
+    device="cpu",
+    random_seed=42
+)
+
+qc = QuantumComputer(config)
+```
+
+### High-Resolution Configuration
+
+```python
+config = SimulatorConfig(
+    grid_size=32,
+    hidden_dim=64,
+    expansion_dim=128,
+    num_spectral_layers=3,
+    hamiltonian_checkpoint="models/h_32x32.pth",
+    schrodinger_checkpoint="models/s_32x32.pth",
+    device="cuda"
+)
+
+qc = QuantumComputer(config)
+```
+
+### Molecular Simulation Configuration
+
+```python
+from quantum_computer import SimulatorConfig
+from molecular_sim import VQESolver
+
+config = SimulatorConfig(
+    grid_size=16,
+    hidden_dim=32,
+    hamiltonian_checkpoint="hamiltonian.pth",
+    device="cpu",
+    random_seed=42
+)
+
+qc = QuantumComputer(config)
+solver = VQESolver(qc, config)
+```
+
+### Orbital Visualization Configuration
+
+```python
+from quantum_simulator import FrameworkConfig
+
+config = FrameworkConfig(
+    grid_size=16,
+    mc_batch_size=200000,
+    mc_max_particles=5000000,
+    figure_dpi=200,
+    figure_size_x=32,
+    figure_size_y=24,
+    output_dir="orbitals"
+)
+```
+
+## Notes
+
+- All energy values are in atomic units (Hartree)
+- All lengths are in Bohr radii (a₀)
+- Checkpoints must be PyTorch `.pth` files
+- Missing checkpoints trigger warnings but don't stop initialization
+- Random seed affects eigenstate initialization only, not quantum gates

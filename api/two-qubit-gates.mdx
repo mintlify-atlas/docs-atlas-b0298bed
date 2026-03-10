@@ -1,0 +1,263 @@
+---
+title: Two-Qubit Gates
+description: Reference for two-qubit entangling gates including CNOT, CZ, and SWAP operations
+---
+
+# Two-Qubit Gates
+
+Two-qubit gates are unitary transformations that operate on pairs of qubits, enabling entanglement and multi-qubit correlations. Each gate applies a 4×4 unitary matrix in the \{|00⟩, |01⟩, |10⟩, |11⟩\} computational basis.
+
+## CNOT Gate (Controlled-NOT)
+
+The CNOT gate flips the target qubit if and only if the control qubit is |1⟩. This is the primary entangling gate in quantum computing.
+
+### Matrix Representation
+
+In the basis ordering \{|00⟩, |01⟩, |10⟩, |11⟩\}:
+
+```
+CNOT = [[1, 0, 0, 0],
+        [0, 1, 0, 0],
+        [0, 0, 0, 1],
+        [0, 0, 1, 0]]
+```
+
+**Action:**
+- |00⟩ → |00⟩
+- |01⟩ → |01⟩  
+- |10⟩ → |11⟩ (flip target)
+- |11⟩ → |10⟩ (flip target)
+
+### Implementation
+
+From `quantum_computer.py:996-1018`:
+
+```python
+class CNOTGate(IQuantumGate):
+    """
+    CNOT: |ctrl tgt> -> |ctrl, ctrl XOR tgt>.
+    
+    4x4 matrix (|00>,|01>,|10>,|11>):
+        |00>->|00>, |01>->|01>, |10>->|11>, |11>->|10>
+    """
+    
+    def apply(self, state, backend, targets, params):
+        if len(targets) < 2:
+            raise ValueError("CNOT requires [control, target]")
+        u4 = torch.tensor([
+            [1, 0, 0, 0],
+            [0, 1, 0, 0],
+            [0, 0, 0, 1],
+            [0, 0, 1, 0],
+        ], dtype=torch.complex64)
+        return _two_qubit_unitary(state, targets[0], targets[1], u4)
+```
+
+### Usage Example
+
+```python
+from quantum_computer import QuantumCircuit, QuantumComputer
+
+# Create Bell state (maximally entangled)
+circuit = QuantumCircuit(n_qubits=2)
+circuit.h(0)         # Hadamard on qubit 0
+circuit.cnot(0, 1)   # CNOT with control=0, target=1
+
+qc = QuantumComputer()
+result = qc.run(circuit)
+# Result: (|00⟩ + |11⟩)/√2
+# Shannon entropy: ~1.0 bits (true entanglement)
+```
+
+### Alternative Syntax
+
+The CNOT gate can also be called using the `cx` method:
+
+```python
+circuit.cx(0, 1)  # Equivalent to circuit.cnot(0, 1)
+```
+
+## CZ Gate (Controlled-Z)
+
+The CZ gate applies a phase flip of -1 to the |11⟩ state while leaving all other states unchanged. This gate is symmetric in its two qubits.
+
+### Matrix Representation
+
+```
+CZ = [[1, 0, 0,  0],
+      [0, 1, 0,  0],
+      [0, 0, 1,  0],
+      [0, 0, 0, -1]]
+```
+
+**Action:**
+- |00⟩ → |00⟩
+- |01⟩ → |01⟩
+- |10⟩ → |10⟩
+- |11⟩ → -|11⟩ (phase flip)
+
+### Implementation
+
+From `quantum_computer.py:1020-1041`:
+
+```python
+class CZGate(IQuantumGate):
+    """
+    CZ: applies phase -1 to |11>.
+    
+    4x4 matrix: diag(1, 1, 1, -1).
+    """
+    
+    def apply(self, state, backend, targets, params):
+        if len(targets) < 2:
+            raise ValueError("CZ requires [control, target]")
+        u4 = torch.tensor([
+            [1, 0, 0,  0],
+            [0, 1, 0,  0],
+            [0, 0, 1,  0],
+            [0, 0, 0, -1],
+        ], dtype=torch.complex64)
+        return _two_qubit_unitary(state, targets[0], targets[1], u4)
+```
+
+### Usage Example
+
+```python
+circuit = QuantumCircuit(n_qubits=2)
+circuit.h(0)
+circuit.h(1)
+circuit.cz(0, 1)  # CZ gate between qubits 0 and 1
+
+result = qc.run(circuit)
+# Creates phase-flip entanglement
+```
+
+### Properties
+
+- **Symmetric:** CZ(i,j) = CZ(j,i) - the order of qubits doesn't matter
+- **Self-inverse:** CZ² = I
+- **Diagonal in computational basis**
+
+## SWAP Gate
+
+The SWAP gate exchanges the quantum states of two qubits.
+
+### Matrix Representation
+
+```
+SWAP = [[1, 0, 0, 0],
+        [0, 0, 1, 0],
+        [0, 1, 0, 0],
+        [0, 0, 0, 1]]
+```
+
+**Action:**
+- |00⟩ → |00⟩
+- |01⟩ → |10⟩ (swap)
+- |10⟩ → |01⟩ (swap)
+- |11⟩ → |11⟩
+
+### Implementation
+
+From `quantum_computer.py:1043-1064`:
+
+```python
+class SWAPGate(IQuantumGate):
+    """
+    SWAP: exchanges two qubits.
+    
+    4x4 matrix: |01>->|10>, |10>->|01>, others unchanged.
+    """
+    
+    def apply(self, state, backend, targets, params):
+        if len(targets) < 2:
+            raise ValueError("SWAP requires 2 target indices")
+        u4 = torch.tensor([
+            [1, 0, 0, 0],
+            [0, 0, 1, 0],
+            [0, 1, 0, 0],
+            [0, 0, 0, 1],
+        ], dtype=torch.complex64)
+        return _two_qubit_unitary(state, targets[0], targets[1], u4)
+```
+
+### Usage Example
+
+```python
+circuit = QuantumCircuit(n_qubits=3)
+circuit.x(0)          # Set qubit 0 to |1⟩
+circuit.swap(0, 2)    # Exchange states of qubits 0 and 2
+
+result = qc.run(circuit)
+# Result: qubit 2 is now |1⟩, qubit 0 is |0⟩
+```
+
+### Use Cases
+
+- **Qubit routing:** Move quantum information between non-adjacent qubits
+- **Circuit optimization:** Rearrange qubit ordering
+- **Quantum sorting algorithms**
+
+## Gate Registry
+
+Two-qubit gates are registered in `_GATE_REGISTRY` (`quantum_computer.py:1157-1174`):
+
+```python
+_GATE_REGISTRY: Dict[str, IQuantumGate] = {
+    "CNOT":   CNOTGate(),
+    "CX":     CNOTGate(),  # Alias for CNOT
+    "CZ":     CZGate(),
+    "SWAP":   SWAPGate(),
+    # ... other gates
+}
+```
+
+## Technical Implementation
+
+All two-qubit gates use the `_two_qubit_unitary` function (`quantum_computer.py:787-840`), which:
+
+1. **Identifies amplitude quadruplets:** For each group of 4 basis states that share all bits except the control and target bits
+2. **Applies 4×4 unitary transformation:**
+   ```python
+   # For basis states k00, k01, k10, k11:
+   α'[row] = Σ(col) u4[row,col] × α[col]
+   ```
+3. **Handles complex amplitudes:** Each amplitude is a (2, G, G) spatial wavefunction with real and imaginary channels
+4. **Preserves entanglement:** Works within the joint Hilbert space structure
+
+### Bit Ordering Convention
+
+From `quantum_computer.py:799-806`:
+
+```python
+# Qubit indexing: qubit 0 is MSB
+ctrl_bit = n_qubits - 1 - ctrl
+tgt_bit = n_qubits - 1 - tgt
+
+# Basis state indices in 4×4 block:
+k00 = base
+k01 = base | (1 << tgt_bit)
+k10 = base | (1 << ctrl_bit)  
+k11 = base | (1 << ctrl_bit) | (1 << tgt_bit)
+```
+
+## Creating Entanglement
+
+Two-qubit gates are essential for creating entangled states that cannot be represented as tensor products of single-qubit states:
+
+```python
+# Bell state preparation
+circuit = QuantumCircuit(n_qubits=2)
+circuit.h(0).cnot(0, 1)
+
+result = qc.run(circuit)
+print(result.entropy())  # ~1.0 bit - maximal entanglement
+print(result.full_distribution)
+# {'00': 0.5, '01': 0.0, '10': 0.0, '11': 0.5}
+```
+
+## See Also
+
+- [Single-Qubit Gates](/api/single-qubit-gates) - H, X, Y, Z operations
+- [Rotation Gates](/api/rotation-gates) - Parameterized gates
+- Multi-controlled gates (Toffoli/CCX, MCZ) for advanced algorithms

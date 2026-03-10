@@ -1,97 +1,127 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: "QC - Quasi Quantum Computing"
+description: "Functional quasi-quantum computing simulator on classical hardware using neural network physics backends"
 ---
 
-## Setting up
+<div style={{
+  background: 'linear-gradient(135deg, #f6be31 0%, #7c531c 100%)',
+  padding: '80px 40px',
+  borderRadius: '8px',
+  marginBottom: '40px',
+  textAlign: 'center'
+}}>
+  <h1 style={{
+    fontSize: '48px',
+    fontWeight: '700',
+    color: '#040404',
+    marginBottom: '20px',
+    fontFamily: 'Inter'
+  }}>Quasi Quantum Computing</h1>
+  <p style={{
+    fontSize: '20px',
+    color: '#4A4A4A',
+    maxWidth: '800px',
+    margin: '0 auto 30px',
+    fontFamily: 'Inter'
+  }}>
+    A revolutionary quantum circuit simulator powered by three independent neural network physics backends—Hamiltonian, Schrödinger, and Dirac—achieving exact constraint preservation without explicit enforcement.
+  </p>
+</div>
 
-Get your documentation site up and running in minutes.
+## Key Features
 
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
-
-## Make it yours
-
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+<CardGroup cols={2}>
+  <Card title="Neural Physics Backends" icon="brain" href="/concepts/neural-backends">
+    Three independently trained neural networks that preserve quantum constraints
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="Quantum Circuits" icon="microchip" href="/concepts/quantum-circuits">
+    Full quantum gate library with entanglement support
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="Molecular Simulation" icon="atom" href="/guides/molecular-simulation">
+    VQE and UCCSD calculations for molecular ground states
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+  <Card title="Constraint Preservation" icon="shield-check" href="/concepts/constraint-preservation">
+    Phase coherence, norm, and entropy preserved to machine precision
   </Card>
-</Columns>
+</CardGroup>
 
-## Create beautiful pages
+## Quick Start
 
-Everything you need to create world-class documentation.
+<Steps>
+  <Step title="Install Dependencies">
+    Clone the repository and install required packages
+    ```bash
+    git clone https://github.com/grisuno/QC.git
+    cd QC
+    ./install.sh
+    ```
+  </Step>
+  <Step title="Run Your First Simulation">
+    Execute a molecular simulation for H2
+    ```bash
+    python3 molecular_sim.py --molecule H2
+    ```
+  </Step>
+  <Step title="Explore Quantum Algorithms">
+    Try standard quantum algorithms with all three backends
+    ```bash
+    python3 quantum_computer.py \
+      --hamiltonian-checkpoint hamiltonian.pth \
+      --schrodinger-checkpoint checkpoint_phase3_training_epoch_18921_20260224_154739.pth \
+      --dirac-checkpoint best_dirac.pth
+    ```
+  </Step>
+</Steps>
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
+## Core Capabilities
 
-## Need inspiration?
+<CardGroup cols={3}>
+  <Card title="Stark Effect" icon="bolt" href="/guides/stark-effect">
+    Electric polarizability calculations with zero error
+  </Card>
+  <Card title="Relativistic QM" icon="infinity" href="/guides/relativistic-hydrogen">
+    Dirac equation solver for hydrogen
+  </Card>
+  <Card title="QED Corrections" icon="atom-simple" href="/advanced/qed-corrections">
+    Lamb shift and anomalous magnetic moment
+  </Card>
+  <Card title="Visualization" icon="chart-line" href="/guides/visualization">
+    Orbital and state evolution visualization
+  </Card>
+  <Card title="Entanglement" icon="link" href="/advanced/entanglement-analysis">
+    Entangled state analysis and entropy tracking
+  </Card>
+  <Card title="Benchmarks" icon="gauge-high" href="/research/benchmarks">
+    Performance metrics and validation results
+  </Card>
+</CardGroup>
 
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+## Research Foundation
+
+QC is built on peer-reviewed research demonstrating that neural network backends can preserve quantum mechanical constraints without explicit enforcement. All three backends—Hamiltonian, Schrödinger, and Dirac—produce identical results across standard algorithms and achieve 100% correlation energy recovery for molecular hydrogen.
+
+<CardGroup cols={2}>
+  <Card title="Constraint Preservation" icon="file-lines" href="/research/constraint-preservation">
+    Neural backends preserve phase, norm, and entropy
+  </Card>
+  <Card title="Extended Capabilities" icon="flask" href="/research/extended-capabilities">
+    Stark effect, QED corrections, and polyatomic molecules
+  </Card>
+</CardGroup>
+
+## Get Started
+
+<CardGroup cols={2}>
+  <Card title="Installation Guide" icon="download" href="/installation">
+    Set up your environment and dependencies
+  </Card>
+  <Card title="Quickstart Tutorial" icon="rocket" href="/quickstart">
+    Run your first quantum simulation in minutes
+  </Card>
+  <Card title="API Reference" icon="code" href="/api/quantum-computer">
+    Explore the complete API documentation
+  </Card>
+  <Card title="View on GitHub" icon="github" href="https://github.com/grisuno/QC">
+    Contribute to the open-source project
+  </Card>
+</CardGroup>

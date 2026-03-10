@@ -1,0 +1,204 @@
+---
+title: Single-Qubit Gates
+description: Reference for single-qubit quantum gates including Hadamard, Pauli, and identity operations
+---
+
+# Single-Qubit Gates
+
+Single-qubit gates are unitary transformations that operate on individual qubits in the quantum register. Each gate applies a 2×2 unitary matrix to the target qubit while preserving the joint Hilbert space structure.
+
+## Hadamard Gate (H)
+
+The Hadamard gate creates an equal superposition between |0⟩ and |1⟩ basis states.
+
+### Matrix Representation
+
+```
+H = 1/√2 × [[1,  1],
+            [1, -1]]
+```
+
+### Implementation
+
+From `quantum_computer.py:861-873`:
+
+```python
+class HadamardGate(IQuantumGate):
+    """H = [[1,1],[1,-1]] / sqrt(2)."""
+    
+    def apply(self, state, backend, targets, params):
+        s = 1.0 / math.sqrt(2.0)
+        u = torch.tensor([[s, s], [s, -s]], dtype=torch.complex64)
+        for t in targets:
+            state = _single_qubit_unitary(state, t, u, backend)
+        return state
+```
+
+### Usage Example
+
+```python
+from quantum_computer import QuantumCircuit, QuantumComputer
+
+circuit = QuantumCircuit(n_qubits=1)
+circuit.h(0)  # Apply Hadamard to qubit 0
+
+qc = QuantumComputer()
+result = qc.run(circuit)
+# Result: |0⟩ → (|0⟩ + |1⟩)/√2
+```
+
+## Pauli-X Gate (X)
+
+The Pauli-X gate is the quantum NOT gate, flipping |0⟩ ↔ |1⟩.
+
+### Matrix Representation
+
+```
+X = [[0, 1],
+     [1, 0]]
+```
+
+### Implementation
+
+From `quantum_computer.py:876-888`:
+
+```python
+class PauliXGate(IQuantumGate):
+    """X = [[0,1],[1,0]]."""
+    
+    def apply(self, state, backend, targets, params):
+        u = torch.tensor([[0, 1], [1, 0]], dtype=torch.complex64)
+        for t in targets:
+            state = _single_qubit_unitary(state, t, u, backend)
+        return state
+```
+
+### Usage Example
+
+```python
+circuit = QuantumCircuit(n_qubits=1)
+circuit.x(0)  # Apply X gate to qubit 0
+
+result = qc.run(circuit)
+# Result: |0⟩ → |1⟩
+```
+
+## Pauli-Y Gate (Y)
+
+The Pauli-Y gate applies a π rotation around the Y-axis of the Bloch sphere.
+
+### Matrix Representation
+
+```
+Y = [[0, -i],
+     [i,  0]]
+```
+
+### Implementation
+
+From `quantum_computer.py:890-902`:
+
+```python
+class PauliYGate(IQuantumGate):
+    """Y = [[0,-i],[i,0]]."""
+    
+    def apply(self, state, backend, targets, params):
+        u = torch.tensor([[0, -1j], [1j, 0]], dtype=torch.complex64)
+        for t in targets:
+            state = _single_qubit_unitary(state, t, u, backend)
+        return state
+```
+
+### Usage Example
+
+```python
+circuit = QuantumCircuit(n_qubits=1)
+circuit.y(0)  # Apply Y gate to qubit 0
+
+result = qc.run(circuit)
+# Result: |0⟩ → i|1⟩
+```
+
+## Pauli-Z Gate (Z)
+
+The Pauli-Z gate applies a phase flip: |0⟩ → |0⟩, |1⟩ → -|1⟩.
+
+### Matrix Representation
+
+```
+Z = [[1,  0],
+     [0, -1]]
+```
+
+### Implementation
+
+From `quantum_computer.py:904-916`:
+
+```python
+class PauliZGate(IQuantumGate):
+    """Z = [[1,0],[0,-1]]."""
+    
+    def apply(self, state, backend, targets, params):
+        u = torch.tensor([[1, 0], [0, -1]], dtype=torch.complex64)
+        for t in targets:
+            state = _single_qubit_unitary(state, t, u, backend)
+        return state
+```
+
+### Usage Example
+
+```python
+circuit = QuantumCircuit(n_qubits=1)
+circuit.z(0)  # Apply Z gate to qubit 0
+
+result = qc.run(circuit)
+# Result: |1⟩ → -|1⟩
+```
+
+## Identity Gate (I)
+
+The identity gate leaves the qubit state unchanged. While not explicitly implemented as a separate gate class, it corresponds to applying no operation or can be represented using the gate registry.
+
+### Matrix Representation
+
+```
+I = [[1, 0],
+     [0, 1]]
+```
+
+### Usage
+
+The identity operation is implicitly applied when no gate is specified for a qubit in a circuit layer.
+
+## Gate Registry
+
+All single-qubit gates are registered in the `_GATE_REGISTRY` dictionary (`quantum_computer.py:1157-1174`):
+
+```python
+_GATE_REGISTRY: Dict[str, IQuantumGate] = {
+    "H":      HadamardGate(),
+    "X":      PauliXGate(),
+    "Y":      PauliYGate(),
+    "Z":      PauliZGate(),
+    "S":      SGate(),
+    "T":      TGate(),
+    # ... other gates
+}
+```
+
+## Technical Details
+
+All single-qubit gates operate via the `_single_qubit_unitary` function (`quantum_computer.py:737-784`), which:
+
+1. Identifies basis state pairs (k0, k1) that differ only in the target qubit bit
+2. Applies the 2×2 unitary matrix to the amplitude pair:
+   - α'_{k0} = u[0,0]×α_{k0} + u[0,1]×α_{k1}
+   - α'_{k1} = u[1,0]×α_{k0} + u[1,1]×α_{k1}
+3. Handles complex multiplication of matrix elements with spatial wavefunctions
+4. Preserves the joint Hilbert space structure for entanglement
+
+## See Also
+
+- [Two-Qubit Gates](/api/two-qubit-gates) - CNOT, CZ, SWAP operations
+- [Rotation Gates](/api/rotation-gates) - Parameterized rotation gates
+- Phase gates (S, T) for advanced quantum algorithms

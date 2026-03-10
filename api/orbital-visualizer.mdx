@@ -1,0 +1,470 @@
+---
+title: "Orbital Visualizer"
+description: "Monte Carlo visualization of atomic orbitals and quantum states with neural Hamiltonian evaluation"
+---
+
+## Overview
+
+High-resolution visualization of hydrogen atom orbitals using Monte Carlo sampling with rejection sampling. Supports neural network Hamiltonian energy evaluation and produces publication-quality 3600×2700 pixel images.
+
+## Classes
+
+### OrbitalVisualizer
+
+Main visualization class from `orbital_visualizer2.py`.
+
+**Constructor:**
+```python
+OrbitalVisualizer()
+```
+
+**Methods:**
+
+#### visualize()
+
+```python
+def visualize(
+    data: Dict[str, Any],
+    save_path: Optional[str] = None,
+    hamiltonian_processor: Optional[HamiltonianNNProcessor] = None
+) -> None
+```
+
+Visualize orbital data with 3D scatter, projections, and statistics.
+
+**Parameters:**
+- `data`: Monte Carlo sample data from `MonteCarloSampler.sample()`
+- `save_path`: Optional output path for PNG file
+- `hamiltonian_processor`: Optional neural network processor for energy calculation
+
+**Output:**
+- **3D scatter plot:** Orbital cloud with positive (red/orange) and negative (blue/cyan) phase
+- **XY projection:** Top view density plot
+- **XZ projection:** Side view density plot
+- **Info panel:** Statistics, energy, particle count
+
+### MonteCarloSampler
+
+Rejection sampling for orbital probability distributions.
+
+**Constructor:**
+```python
+MonteCarloSampler(hamiltonian_processor: Optional[HamiltonianNNProcessor] = None)
+```
+
+**Methods:**
+
+#### sample()
+
+```python
+def sample(
+    n: int,
+    l: int,
+    m: int,
+    num_samples: int
+) -> Dict[str, Any]
+```
+
+Generate Monte Carlo samples for atomic orbital.
+
+**Parameters:**
+- `n`: Principal quantum number (1, 2, 3, ...)
+- `l`: Azimuthal quantum number (0, 1, ..., n-1)
+- `m`: Magnetic quantum number (-l, ..., +l)
+- `num_samples`: Target number of particles (default: `100000`)
+
+**Returns:** Dictionary with:
+- `x, y, z`: Cartesian coordinates (np.ndarray)
+- `prob`: Probability density at each point
+- `phase`: Wavefunction phase (positive/negative)
+- `n, l, m`: Quantum numbers
+- `r_max`: Radial cutoff used
+- `efficiency`: Acceptance rate percentage
+- `energy_info`: Neural network energy (if available)
+
+**Example:**
+```python
+sampler = MonteCarloSampler()
+data = sampler.sample(n=2, l=1, m=0, num_samples=200000)
+print(f"Efficiency: {data['efficiency']:.2f}%")
+print(f"Particles: {len(data['x'])}")
+```
+
+#### find_max_probability()
+
+```python
+def find_max_probability(
+    n: int,
+    l: int,
+    m: int
+) -> Tuple[float, float, float, float]
+```
+
+Find maximum probability density for rejection sampling threshold.
+
+**Returns:** `(P_max, r_best, theta_best, phi_best)`
+
+### WavefunctionCalculator
+
+Analytical hydrogen atom wavefunction calculations.
+
+**Methods:**
+
+#### radial_wavefunction()
+
+```python
+@staticmethod
+def radial_wavefunction(n: int, l: int, r: np.ndarray) -> np.ndarray
+```
+
+Compute radial part R_nl(r).
+
+**Formula:**
+$$
+R_{nl}(r) = \sqrt{\left(\frac{2}{n a_0}\right)^3 \frac{(n-l-1)!}{2n(n+l)!}} \rho^l L_{n-l-1}^{2l+1}(\rho) e^{-\rho/2}
+$$
+
+where $\rho = 2r/n$ and $L$ is the generalized Laguerre polynomial.
+
+#### spherical_harmonic_real()
+
+```python
+@staticmethod
+def spherical_harmonic_real(
+    l: int,
+    m: int,
+    theta: np.ndarray,
+    phi: np.ndarray
+) -> np.ndarray
+```
+
+Compute real spherical harmonic Y_lm(θ, φ).
+
+**Convention:**
+- `m > 0`: $\sqrt{2} \text{Re}(Y_l^m) \times (-1)^m$
+- `m < 0`: $\sqrt{2} \text{Im}(Y_l^{|m|}) \times (-1)^{|m|}$
+- `m = 0`: Real part of $Y_l^0$
+
+### HamiltonianNNProcessor
+
+Neural network energy evaluator for orbitals.
+
+**Constructor:**
+```python
+HamiltonianNNProcessor(engine: HamiltonianInferenceEngine)
+```
+
+**Methods:**
+
+#### compute_expected_energy()
+
+```python
+def compute_expected_energy(
+    n: int,
+    l: int,
+    m: int
+) -> Dict[str, float]
+```
+
+Compute energy using trained neural network.
+
+**Returns:**
+- `energy_nn`: Neural network prediction (Hartree)
+- `energy_analytical`: Exact value $-0.5/n^2$ (Hartree)
+- `energy_difference`: Absolute error
+
+**Example:**
+```python
+processor = HamiltonianNNProcessor(engine)
+result = processor.compute_expected_energy(2, 1, 0)
+print(f"E_NN: {result['energy_nn']:.6f} Ha")
+print(f"E_exact: {result['energy_analytical']:.6f} Ha")
+print(f"Error: {result['energy_difference']:.6f} Ha")
+```
+
+### QuantumVisualizer (from quantum_visualizer.py)
+
+Comprehensive quantum state visualization.
+
+**Constructor:**
+```python
+QuantumVisualizer(config: VisualizerConfig)
+```
+
+**Methods:**
+
+#### visualize_bell_state()
+
+```python
+def visualize_bell_state() -> VisualizationResult
+```
+
+Visualize Bell state creation (H → CNOT).
+
+#### visualize_ghz_state()
+
+```python
+def visualize_ghz_state(n_qubits: Optional[int] = None) -> VisualizationResult
+```
+
+Visualize GHZ state with n qubits.
+
+#### visualize_qft()
+
+```python
+def visualize_qft(n_qubits: Optional[int] = None) -> VisualizationResult
+```
+
+Visualize Quantum Fourier Transform.
+
+#### visualize_grover()
+
+```python
+def visualize_grover(
+    n_qubits: Optional[int] = None,
+    marked_state: Optional[int] = None
+) -> VisualizationResult
+```
+
+Visualize Grover's search algorithm.
+
+## Configuration
+
+### Visualization Settings (orbital_visualizer2.py)
+
+```python
+class Config:
+    GRID_SIZE = 16                    # NN grid resolution
+    HIDDEN_DIM = 32                   # NN hidden dimension
+    NUM_SPECTRAL_LAYERS = 2           # Spectral layers
+    
+    # Output image size
+    FIGURE_DPI = 150                  # Dots per inch
+    FIGURE_SIZE_X = 24                # Width in inches → 3600 pixels
+    FIGURE_SIZE_Y = 18                # Height in inches → 2700 pixels
+    
+    # Monte Carlo
+    MONTE_CARLO_BATCH_SIZE = 100000
+    MONTE_CARLO_MAX_PARTICLES = 2000000
+    MONTE_CARLO_MIN_PARTICLES = 5000
+    
+    # Sampling parameters
+    ORBITAL_R_MAX_FACTOR = 4          # r_max = 4 * n^2 + 10
+    ORBITAL_R_MAX_OFFSET = 10
+    ORBITAL_PROBABILITY_SAFETY_FACTOR = 1.05
+    
+    # Grid search for P_max
+    ORBITAL_GRID_SEARCH_R = 300
+    ORBITAL_GRID_SEARCH_THETA = 150
+    ORBITAL_GRID_SEARCH_PHI = 150
+    
+    # Visualization
+    HISTOGRAM_BINS = 300              # Projection resolution
+    SCATTER_SIZE_MIN = 1.0            # Point size
+    SCATTER_SIZE_MAX = 8.0
+```
+
+### VisualizerConfig (quantum_visualizer.py)
+
+```python
+@dataclass
+class VisualizerConfig:
+    grid_size: int = 16
+    hidden_dim: int = 32
+    expansion_dim: int = 64
+    num_spectral_layers: int = 2
+    
+    # Physics
+    dt: float = 0.01
+    normalization_eps: float = 1e-8
+    
+    # Visualization
+    figure_dpi: int = 150
+    figure_size_x: int = 24
+    figure_size_y: int = 20
+    colormap_primary: str = "inferno"
+    colormap_secondary: str = "viridis"
+    colormap_phase: str = "twilight"
+    background_color: str = "#000008"
+    
+    # Analysis
+    histogram_bins: int = 100
+    entropy_base: float = 2.0
+    probability_threshold: float = 1e-6
+    
+    # Output
+    output_dir: str = "download"
+```
+
+## Supported Orbitals
+
+Pre-defined orbitals in `ORBITALS` dictionary:
+
+```python
+ORBITALS = {
+    # n=1
+    '1s': (1, 0, 0),
+    
+    # n=2
+    '2s': (2, 0, 0),
+    '2p_z': (2, 1, 0),
+    '2p_x': (2, 1, 1),
+    '2p_y': (2, 1, -1),
+    
+    # n=3
+    '3s': (3, 0, 0),
+    '3p_z': (3, 1, 0),
+    '3p_x': (3, 1, 1),
+    '3p_y': (3, 1, -1),
+    '3d_z2': (3, 2, 0),
+    '3d_xz': (3, 2, 1),
+    '3d_yz': (3, 2, -1),
+    '3d_xy': (3, 2, 2),
+    '3d_x2-y2': (3, 2, -2),
+    
+    # n=4
+    '4s': (4, 0, 0),
+    '4p_z': (4, 1, 0),
+    '4d_z2': (4, 2, 0),
+    '4f_z3': (4, 3, 0),
+    
+    # n=5
+    '5s': (5, 0, 0),
+    '5p_z': (5, 1, 0),
+    '5d_z2': (5, 2, 0),
+}
+```
+
+## Example Usage
+
+### Basic Orbital Visualization
+
+```python
+from orbital_visualizer2 import (
+    Config,
+    MonteCarloSampler,
+    OrbitalVisualizer,
+    HamiltonianNNProcessor
+)
+
+# Initialize
+sampler = MonteCarloSampler()
+visualizer = OrbitalVisualizer()
+
+# Sample 2p orbital
+data = sampler.sample(n=2, l=1, m=0, num_samples=200000)
+
+# Visualize and save
+visualizer.visualize(
+    data,
+    save_path="orbital_2p_200k.png"
+)
+# Saves 3600×2700 pixel PNG image
+```
+
+### With Neural Network Energy
+
+```python
+from schrodinger_crystal_fixed2 import HamiltonianInferenceEngine
+
+# Load trained model
+engine = HamiltonianInferenceEngine(Config)
+processor = HamiltonianNNProcessor(engine)
+sampler = MonteCarloSampler(processor)
+
+# Sample with energy calculation
+data = sampler.sample(n=3, l=2, m=0, num_samples=500000)
+
+print(f"E_NN: {data['energy_info']['energy_nn']:.6f} Ha")
+print(f"E_exact: {data['energy_info']['energy_analytical']:.6f} Ha")
+
+visualizer.visualize(data, "3d_orbital.png", processor)
+```
+
+### Interactive Session
+
+```python
+from orbital_visualizer2 import main, ORBITALS
+
+# Run interactive visualizer
+main()
+# Prompts:
+# Orbital (or 'q'): 3d_z2
+# Particles [default=100000]: 500000
+# Save? [y/N]: y
+# Saves: orbital_3d_z2_500000.png
+```
+
+### Quantum State Visualization
+
+```python
+from quantum_visualizer import QuantumVisualizer, VisualizerConfig
+
+config = VisualizerConfig(
+    grid_size=16,
+    hamiltonian_checkpoint="hamiltonian.pth",
+    schrodinger_checkpoint="schrodinger.pth",
+    output_dir="visualizations"
+)
+
+visualizer = QuantumVisualizer(config)
+
+# Visualize Bell state
+result = visualizer.visualize_bell_state()
+print(f"Entropy: {result.snapshots[-1].entropy:.4f} bits")
+print(f"Output: {result.output_path}")
+
+# Visualize GHZ state
+result = visualizer.visualize_ghz_state(n_qubits=4)
+print(f"Most probable: |{result.snapshots[-1].most_probable}>")
+```
+
+## Output Format
+
+### Orbital Visualization Layout
+
+**2×2 grid:**
+1. **Top-left:** 3D scatter plot with phase coloring
+2. **Top-right:** XY projection (top view)
+3. **Bottom-left:** XZ projection (side view)
+4. **Bottom-right:** Statistics and energy info
+
+### Statistics Panel
+
+Displays:
+- Orbital notation (e.g., "3d_z2")
+- Quantum numbers (n, l, m)
+- Particle count and sampling efficiency
+- Radial statistics (mean, std, max in Bohr radii)
+- Neural network energy (if available)
+- Hamiltonian status (LOADED/ANALYTICAL)
+
+### Color Scheme
+
+- **Positive phase:** Red/orange gradient
+- **Negative phase:** Blue/cyan gradient
+- **Background:** Dark blue (#000008)
+- **Projections:** "inferno" (XY), "viridis" (XZ)
+
+## Performance
+
+### Sampling Efficiency
+
+| Orbital | Particles | Efficiency | Time     |
+|---------|-----------|------------|----------|
+| 1s      | 100k      | 15-20%     | 2-3 sec  |
+| 2p      | 200k      | 8-12%      | 5-8 sec  |
+| 3d      | 500k      | 4-6%       | 20-30 sec|
+| 4f      | 1M        | 2-3%       | 60-90 sec|
+
+### Image Generation
+
+Typical time: 10-15 seconds for 3600×2700 PNG
+
+## Dependencies
+
+- `numpy`: Numerical arrays
+- `scipy`: Special functions (Laguerre, spherical harmonics)
+- `matplotlib`: Plotting
+- `torch`: Neural network inference (optional)
+- `plotly`: Interactive 3D plots (optional)

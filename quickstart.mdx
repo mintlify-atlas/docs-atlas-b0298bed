@@ -1,80 +1,467 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quick Start
+description: Run your first quantum simulation with QC in minutes
 ---
 
-## Get started in three steps
+# Quick Start
 
-Get your documentation site running locally and make your first customization.
+This tutorial will guide you through running your first quantum simulations with QC. You'll learn how to simulate quantum circuits and perform molecular ground state calculations.
 
-### Step 1: Set up your local environment
+## Your First Quantum Circuit
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+Let's start by running the quantum computer simulator with all three physics backends.
 
-### Step 2: Deploy your changes
+### Running the Simulator
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+Execute the quantum computer with the following command:
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
-
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 3: Go live
-
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
-
-## Next steps
-
-Now that you have your docs running, explore these key features:
-
-<CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
-</CardGroup>
+```bash
+python3 quantum_computer.py \
+  --hamiltonian-checkpoint hamiltonian.pth \
+  --schrodinger-checkpoint checkpoint_phase3_training_epoch_18921_20260224_154739.pth \
+  --dirac-checkpoint best_dirac.pth \
+  --grid-size 16 \
+  --hidden-dim 32 \
+  --expansion-dim 64 \
+  --device cpu
+```
 
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+The simulator automatically loads all three backends and runs a comprehensive test suite including Bell states, GHZ states, Grover's algorithm, and phase coherence tests.
+</Note>
+
+### Understanding the Output
+
+The simulator runs three backends in parallel and produces identical results:
+
+<CodeGroup>
+```text Hamiltonian Backend
+--- Backend: HAMILTONIAN ---
+[Bell State]  expected: P(|00>)=0.5, P(|11>)=0.5, entropy=1 bit
+MeasurementResult (2 qubits)
+  Most probable: |00>  P=0.5000
+  Shannon entropy: 1.0000 bits
+  Top states:
+    |00>  P=0.5000
+    |11>  P=0.5000
+```
+
+```text Schrödinger Backend
+--- Backend: SCHRODINGER ---
+[Bell State]  expected: P(|00>)=0.5, P(|11>)=0.5, entropy=1 bit
+MeasurementResult (2 qubits)
+  Most probable: |00>  P=0.5000
+  Shannon entropy: 1.0000 bits
+  Top states:
+    |00>  P=0.5000
+    |11>  P=0.5000
+```
+
+```text Dirac Backend
+--- Backend: DIRAC ---
+[Bell State]  expected: P(|00>)=0.5, P(|11>)=0.5, entropy=1 bit
+MeasurementResult (2 qubits)
+  Most probable: |00>  P=0.5000
+  Shannon entropy: 1.0000 bits
+  Top states:
+    |00>  P=0.5000
+    |11>  P=0.5000
+```
+</CodeGroup>
+
+### Test Results
+
+The simulator validates 22 phase coherence tests:
+
+```text
+======================================================================
+PHASE COHERENCE & UNITARITY TEST SUITE
+======================================================================
+
+--- Group 1: Single-qubit phase algebra ---
+  [PASS] HZH = X  (|0>->|1>):  P(|1>)=1.0000
+  [PASS] HXH = Z  (|0>->|0>):  P(|1>)=0.0000
+  [PASS] XX = I   (|0>->|0>):  P(|1>)=0.0000
+
+--- Group 2: Two-qubit phase-sensitive interference ---
+  [PASS] H CNOT CNOT H = I  (P(|00>)=1.0000)
+  [PASS] SWAP |01> = |10>   (P(|10>)=1.0000)
+
+--- Group 3: Norm preservation (unitarity) ---
+  [PASS] Norm preserved after H: sum(P)=1.00000000
+  [PASS] Norm preserved after Bell: sum(P)=1.00000000
+
+--- Group 4: Entanglement (Shannon entropy) ---
+  [PASS] Bell state entropy = 1 bit  (got 1.0000)
+  [PASS] GHZ-3 entropy = 1 bit  (got 1.0000)
+
+======================================================================
+ALL TESTS PASSED  (22/22)
+======================================================================
+```
+
+## Molecular Ground State Calculation
+
+Now let's calculate the ground state energy of molecular hydrogen (H₂) using Variational Quantum Eigensolver (VQE).
+
+### Run Molecular Simulation
+
+```bash
+python3 molecular_sim.py --molecule H2
+```
+
+<Accordion title="Command Options">
+  - `--molecule`: Molecule to simulate (currently supports: H2)
+  - `--max-iter`: Maximum VQE iterations (default: 100)
+  - `--hamiltonian-checkpoint`: Path to Hamiltonian weights
+  - `--schrodinger-checkpoint`: Path to Schrödinger weights
+  - `--dirac-checkpoint`: Path to Dirac weights
+  - `--grid-size`: Spatial grid size (default: 16)
+  - `--hidden-dim`: Neural network hidden dimension (default: 32)
+  - `--expansion-dim`: Neural network expansion dimension (default: 64)
+  - `--seed`: Random seed for reproducibility (default: 42)
+</Accordion>
+
+### Molecular Simulation Output
+
+The VQE optimizer converges to the exact ground state:
+
+<Steps>
+  <Step title="Initialization">
+    ```text
+    2026-03-01 22:51:27,739 | MolecularSimulator | INFO | Loaded H2 from PySCF: HF=-1.11699900, FCI=-1.13730604, E_nuc=0.719969
+    2026-03-01 22:51:27,805 | MolecularSimulator | INFO | Starting VQE for H2 (4 qubits)
+    2026-03-01 22:51:27,805 | MolecularSimulator | INFO | HF state: |1100> (2 e-, 4 qubits)
+    ```
+  </Step>
+
+  <Step title="Hamiltonian Verification">
+    ```text
+    2026-03-01 22:51:28,825 | MolecularSimulator | INFO | OpenFermion JW: 14 Pauli terms, E_nuc=-0.090579 Ha
+    2026-03-01 22:51:28,837 | MolecularSimulator | INFO | Verification: E_HF(calc)=-1.11699900 Ha, E_HF(target)=-1.11699900 Ha
+    ```
+  </Step>
+
+  <Step title="UCCSD Ansatz">
+    ```text
+    2026-03-01 22:51:28,858 | MolecularSimulator | INFO | UCCSD: 4 singles + 1 doubles = 5 parameters
+    2026-03-01 22:51:28,869 | MolecularSimulator | INFO | [check] theta=0: E=-1.11699900 Ha  ✓ identity
+    ```
+  </Step>
+
+  <Step title="Parameter Optimization">
+    ```text
+    Scanning double amplitude:
+      theta_d=-0.10  E=-1.13707997 Ha ← best
+      theta_d=+0.00  E=-1.11699900 Ha
+    
+    iter   1: E=-1.13707997 Ha  Δ_FCI=2.26e-04
+    iter  20: E=-1.13730604 Ha  Δ_FCI=1.54e-10
+    
+    Optimizer: CONVERGENCE: RELATIVE REDUCTION OF F <= FACTR*EPSMCH  (30 evals)
+    ```
+  </Step>
+
+  <Step title="Final Results">
+    ```text
+    Final: E_VQE=-1.13730604  E_FCI=-1.13730604  corr=100.0%
+    
+    ============================================================
+      VQE Result: H2  [openfermion_jw]
+    ============================================================
+      Qubits: 4
+      Parameters: 5
+    ────────────────────────────────────────────────────────────
+      HF energy  : -1.11699900 Ha
+      VQE energy : -1.13730604 Ha
+      FCI energy : -1.13730604 Ha
+    ────────────────────────────────────────────────────────────
+      |VQE-FCI|  : 1.31e-11 Ha
+      Correlation: 100.0%
+    ============================================================
+    ```
+  </Step>
+</Steps>
+
+<Note>
+The VQE calculation achieves **100% correlation energy capture** with error |VQE-FCI| = 1.31×10⁻¹¹ Ha, which is at machine precision!
+</Note>
+
+## Building Custom Circuits
+
+Here's how to create and run custom quantum circuits programmatically:
+
+```python quantum_circuit_example.py
+from quantum_computer import QuantumComputer, QuantumCircuit, SimulatorConfig
+
+# Configure simulator
+config = SimulatorConfig(
+    hamiltonian_checkpoint="hamiltonian.pth",
+    schrodinger_checkpoint="checkpoint_phase3_training_epoch_18921_20260224_154739.pth",
+    dirac_checkpoint="best_dirac.pth",
+    grid_size=16,
+    hidden_dim=32,
+    expansion_dim=64,
+    device="cpu"
+)
+
+# Initialize quantum computer
+qc = QuantumComputer(config)
+
+# Build a Bell state circuit
+circuit = QuantumCircuit(2)
+circuit.h(0)           # Hadamard on qubit 0
+circuit.cnot(0, 1)     # CNOT with control=0, target=1
+
+# Run circuit with Schrödinger backend
+result = qc.run(circuit, backend="schrodinger")
+
+# Display results
+print(result)
+print(f"\nEntropy: {result.entropy():.4f} bits")
+print(f"Most probable: |{result.most_probable_bitstring()}>")
+```
+
+Output:
+
+```text
+MeasurementResult (2 qubits)
+  Most probable: |00>  P=0.5000
+  Shannon entropy: 1.0000 bits
+  Top states:
+    |00>  P=0.5000
+    |11>  P=0.5000
+  Per-qubit marginals:
+    q0: P(|1>)=0.5000  <Z>=+0.0000  Bloch=(+0.000,-0.000,+0.000)
+    q1: P(|1>)=0.5000  <Z>=+0.0000  Bloch=(+0.000,-0.000,+0.000)
+
+Entropy: 1.0000 bits
+Most probable: |00>
+```
+
+## Available Quantum Gates
+
+QC supports a comprehensive set of quantum gates:
+
+<AccordionGroup>
+  <Accordion title="Single-Qubit Gates">
+    ```python
+    circuit.h(0)              # Hadamard
+    circuit.x(0)              # Pauli-X (NOT)
+    circuit.y(0)              # Pauli-Y
+    circuit.z(0)              # Pauli-Z
+    circuit.s(0)              # Phase gate (√Z)
+    circuit.t(0)              # T gate (√S)
+    circuit.rx(0, theta)      # Rotation around X-axis
+    circuit.ry(0, theta)      # Rotation around Y-axis
+    circuit.rz(0, theta)      # Rotation around Z-axis
+    ```
+  </Accordion>
+
+  <Accordion title="Two-Qubit Gates">
+    ```python
+    circuit.cnot(0, 1)        # Controlled-NOT
+    circuit.cx(0, 1)          # Alias for CNOT
+    circuit.cz(0, 1)          # Controlled-Z
+    circuit.swap(0, 1)        # SWAP gate
+    ```
+  </Accordion>
+
+  <Accordion title="Multi-Qubit Gates">
+    ```python
+    circuit.toffoli(0, 1, 2)  # Toffoli (CCX)
+    circuit.ccx(0, 1, 2)      # Alias for Toffoli
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Backend Comparison
+
+Run the same circuit on all three backends:
+
+```python backend_comparison.py
+from quantum_computer import QuantumComputer, QuantumCircuit, SimulatorConfig
+
+config = SimulatorConfig(device="cpu")
+qc = QuantumComputer(config)
+
+# Create GHZ state
+circuit = QuantumCircuit(3)
+circuit.h(0)
+circuit.cnot(0, 1)
+circuit.cnot(1, 2)
+
+# Run on all backends
+backends = ["hamiltonian", "schrodinger", "dirac"]
+
+print("Comparing backends on 3-qubit GHZ state:")
+print("=" * 60)
+
+for backend in backends:
+    result = qc.run(circuit, backend=backend)
+    prob_000 = result.full_distribution["000"]
+    prob_111 = result.full_distribution["111"]
+    entropy = result.entropy()
+    
+    print(f"\n{backend.upper()} Backend:")
+    print(f"  P(|000>) = {prob_000:.4f}")
+    print(f"  P(|111>) = {prob_111:.4f}")
+    print(f"  Entropy  = {entropy:.4f} bits")
+```
+
+Output:
+
+```text
+Comparing backends on 3-qubit GHZ state:
+============================================================
+
+HAMILTONIAN Backend:
+  P(|000>) = 0.5000
+  P(|111>) = 0.5000
+  Entropy  = 1.0000 bits
+
+SCHRODINGER Backend:
+  P(|000>) = 0.5000
+  P(|111>) = 0.5000
+  Entropy  = 1.0000 bits
+
+DIRAC Backend:
+  P(|000>) = 0.5000
+  P(|111>) = 0.5000
+  Entropy  = 1.0000 bits
+```
+
+<Note>
+All three backends produce **identical results**, demonstrating structural consistency in the learned physics representations.
+</Note>
+
+## Common Use Cases
+
+<CardGroup cols={2}>
+  <Card title="Algorithm Development" icon="code">
+    Test quantum algorithms like Grover, QFT, and VQE before deploying to real hardware
+  </Card>
+  
+  <Card title="Education" icon="graduation-cap">
+    Visualize quantum states and measure observables without wavefunction collapse
+  </Card>
+  
+  <Card title="Molecular Chemistry" icon="flask">
+    Calculate ground state energies for small molecules using VQE with UCCSD ansatz
+  </Card>
+  
+  <Card title="Benchmarking" icon="chart-line">
+    Compare neural backend performance against analytical solutions
+  </Card>
+</CardGroup>
+
+## Advanced Features
+
+### Grover's Search Algorithm
+
+Run Grover's algorithm to find a marked state:
+
+```python grover_example.py
+from quantum_computer import QuantumComputer, QuantumCircuit, SimulatorConfig
+import math
+
+config = SimulatorConfig(device="cpu")
+qc = QuantumComputer(config)
+
+n_qubits = 3
+marked_state = 5  # |101>
+
+# Calculate optimal iterations
+N = 2 ** n_qubits
+optimal_iterations = int(math.pi / 4 * math.sqrt(N))
+
+circuit = QuantumCircuit(n_qubits)
+
+# Initialize superposition
+for i in range(n_qubits):
+    circuit.h(i)
+
+# Grover iterations
+for _ in range(optimal_iterations):
+    # Oracle: mark |101>
+    circuit.x(1)  # Flip qubit 1
+    circuit.h(2)
+    circuit.toffoli(0, 1, 2)  # MCZ on marked state
+    circuit.h(2)
+    circuit.x(1)
+    
+    # Diffusion operator
+    for i in range(n_qubits):
+        circuit.h(i)
+    for i in range(n_qubits):
+        circuit.x(i)
+    circuit.h(2)
+    circuit.toffoli(0, 1, 2)
+    circuit.h(2)
+    for i in range(n_qubits):
+        circuit.x(i)
+    for i in range(n_qubits):
+        circuit.h(i)
+
+result = qc.run(circuit, backend="schrodinger")
+print(f"Probability of marked state |101>: {result.full_distribution['101']:.4f}")
+print(f"Expected: ~0.9453")
+```
+
+Output:
+
+```text
+Probability of marked state |101>: 0.9453
+Expected: ~0.9453
+```
+
+## Next Steps
+
+<CardGroup cols={3}>
+  <Card title="API Reference" icon="book" href="/api/quantum-computer">
+    Complete API documentation
+  </Card>
+  
+  <Card title="Examples" icon="code" href="/examples">
+    More quantum circuit examples
+  </Card>
+  
+  <Card title="Advanced Topics" icon="graduation-cap" href="/advanced">
+    Deep dive into neural backends
+  </Card>
+</CardGroup>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Low success probability in Grover's algorithm">
+    **Solution**: Ensure you're using the optimal number of Grover iterations:
+    ```python
+    optimal_iterations = int(math.pi / 4 * math.sqrt(2**n_qubits))
+    ```
+  </Accordion>
+
+  <Accordion title="VQE not converging">
+    **Solution**: 
+    - Increase `--max-iter` parameter (default is 100)
+    - Check that Hamiltonian construction succeeded (look for "✓ OpenFermion Hamiltonian verified")
+    - Verify checkpoint files are loaded correctly
+  </Accordion>
+
+  <Accordion title="Results differ between backends">
+    **Solution**: This should not happen! If backends produce different results, check:
+    - All checkpoint files are loaded correctly
+    - No warnings about "using H-only" fallback
+    - Random seed is consistent across runs
+  </Accordion>
+</AccordionGroup>
+
+## Resources
+
+- **Source Code**: `quantum_computer.py` - Main simulator implementation (quantum_computer.py:1)
+- **Molecular VQE**: `molecular_sim.py` - VQE solver for molecules (molecular_sim.py:1)
+- **README**: `README.md` - Full project documentation with research paper
+
+<Note>
+For detailed information about the neural physics backends and validation results, see the Extended Capabilities paper in the README.
 </Note>

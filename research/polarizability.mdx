@@ -1,0 +1,324 @@
+---
+title: 'Electric Polarizability Calculation'
+description: 'Stark effect calculation yielding electric polarizability of 2.750 a₀³ with zero error compared to exact diagonalization'
+---
+
+## Overview
+
+The electric polarizability calculation represents the most significant new finding in the extended capabilities experiments. It demonstrates that the neural backends preserve not only quantum mechanical constraints but also the mathematical structure needed for molecular response properties.
+
+From README.md:371:
+
+> The polarizability result is the most significant new finding.
+
+## Calculation Method
+
+### Hamiltonian with External Field
+
+The total Hamiltonian in the presence of an external electric field F:
+
+```
+H(F) = H₀ - F·μ
+```
+
+where:
+- **H₀**: Zero-field molecular Hamiltonian
+- **F**: External electric field strength (atomic units)
+- **μ**: Dipole moment operator
+
+From README.md:205-212:
+
+> A dipole operator was constructed from PySCF molecular orbitals. The dipole matrix in the MO basis was computed, then mapped to qubits via Jordan-Wigner transformation. The total Hamiltonian at field strength F became:
+>
+> H(F) = H_0 - F * mu
+>
+> where mu is the dipole operator in qubit representation.
+
+### Dipole Operator Structure
+
+<Accordion title="Dipole Operator Matrix (RESULTS.md:577-580)">
+
+```python
+Dipole MO matrix:
+[[-3.28091797e-10 -9.27833470e-01]
+ [-9.27833470e-01 -3.28091741e-10]]
+```
+
+**Structure analysis**:
+- Off-diagonal elements: **-0.9278**
+- Diagonal elements: **~0** (order 10⁻¹⁰)
+- Physical interpretation: Transition dipole between bonding and antibonding orbitals
+
+**Jordan-Wigner mapping**:
+- 4 Pauli terms
+- Identity contribution: exactly 0.000000
+
+From README.md:39-42:
+
+> The dipole operator matrix in the molecular orbital basis showed immediate structure. The off-diagonal elements measured -0.9278, dominating the diagonal elements which were essentially zero. This is the signature of a transition dipole between bonding and antibonding orbitals. The operator contained four Pauli terms with identity contribution exactly zero.
+
+</Accordion>
+
+## Zero-Field Reference
+
+Establishing the zero-field reference is critical for measuring field response.
+
+<Accordion title="Zero-Field VQE Results (RESULTS.md:624-628)">
+
+```text
+============================================================
+STEP 1: ZERO-FIELD REFERENCE
+============================================================
+E(0) = -1.1373060358
+θ = [-6.77278357e-09 -1.03333271e-08 -8.66274926e-09 -5.65363690e-08
+ -1.11768514e-01]
+ΔE_FCI = 2.89e-15
+```
+
+**Key metrics**:
+- **Energy**: -1.1373060358 Ha
+- **Singles parameters**: ~0 (order 10⁻⁸ to 10⁻⁹)
+- **Double parameter**: -0.111768514
+- **Error from FCI**: 2.89 × 10⁻¹⁵ Ha
+
+From README.md:46:
+
+> This is not approximate. It is exact.
+
+</Accordion>
+
+### Diagnostic Test: Frozen Parameters
+
+To verify that field response requires reoptimization, the zero-field parameters were evaluated at different field strengths:
+
+<Accordion title="Frozen Parameter Diagnostic (RESULTS.md:630-634)">
+
+```text
+--- Diagnostic: same θ, different H(F) ---
+  [zero-field θ] F=+0.00000: <H₀>=-1.1373060358, <μ>=0.0000000925, -F<μ>=-0.0000000000, E=-1.1373060358
+  [zero-field θ] F=+0.00500: <H₀>=-1.1373060358, <μ>=0.0000000925, -F<μ>=-0.0000000005, E=-1.1373060362
+  [zero-field θ] F=+0.01000: <H₀>=-1.1373060358, <μ>=0.0000000925, -F<μ>=-0.0000000009, E=-1.1373060367
+  [zero-field θ] F=+0.02000: <H₀>=-1.1373060358, <μ>=0.0000000925, -F<μ>=-0.0000000019, E=-1.1373060376
+```
+
+**Observation**: With frozen zero-field parameters, the dipole expectation value remains constant (~9.25 × 10⁻⁸) and the energy shift is minimal.
+
+From README.md:47:
+
+> The dipole expectation value remained essentially constant at 9.25e-08. This tells me the wavefunction was not adapting to the field. It was frozen in its zero-field configuration.
+
+</Accordion>
+
+## Field Sweep with Reoptimization
+
+VQE was run independently at each field value from -0.02 to +0.02 atomic units.
+
+### Complete Results Table
+
+From RESULTS.md:636-646:
+
+<Accordion title="Full Field Sweep Data">
+
+```text
+============================================================
+STEP 2: FIELD SWEEP
+============================================================
+  F=-0.00500: E=-1.1373404123, ΔE=-0.0000343765
+  F=+0.00500: E=-1.1373404123, ΔE=-0.0000343765
+  F=-0.01000: E=-1.1374435409, ΔE=-0.0001375052
+  F=+0.01000: E=-1.1374435409, ΔE=-0.0001375052
+  F=-0.01500: E=-1.1376154189, ΔE=-0.0003093832
+  F=+0.01500: E=-1.1376154189, ΔE=-0.0003093832
+  F=-0.02000: E=-1.1378560417, ΔE=-0.0005500059
+  F=+0.02000: E=-1.1378560417, ΔE=-0.0005500059
+```
+
+</Accordion>
+
+### Formatted Data Table
+
+| Field F (a.u.) | Energy E(F) (Ha) | ΔE = E(F) - E(0) (Ha) |
+|----------------|------------------|----------------------|
+| -0.02000 | -1.1378560417 | -0.0005500059 |
+| -0.01500 | -1.1376154189 | -0.0003093832 |
+| -0.01000 | -1.1374435409 | -0.0001375052 |
+| -0.00500 | -1.1373404123 | -0.0000343765 |
+| 0.00000 | -1.1373060358 | 0.0000000000 |
+| +0.00500 | -1.1373404123 | -0.0000343765 |
+| +0.01000 | -1.1374435409 | -0.0001375052 |
+| +0.01500 | -1.1376154189 | -0.0003093832 |
+| +0.02000 | -1.1378560417 | -0.0005500059 |
+
+**Observation**: Energy decreases quadratically with field strength, showing the expected polarization response.
+
+## Symmetry Analysis
+
+The energy response shows perfect inversion symmetry.
+
+### Symmetry Verification
+
+From RESULTS.md:663-667:
+
+```text
+Symmetry |E(+F)-E(-F)|:
+  ±0.0050: 2.22e-16
+  ±0.0100: 3.11e-15
+  ±0.0150: 2.36e-12
+  ±0.0200: 1.11e-15
+```
+
+<CardGroup cols={2}>
+  <Card title="|E(+0.005) - E(-0.005)|" icon="equals">
+    **2.22 × 10⁻¹⁶ Ha**
+  </Card>
+  <Card title="|E(+0.010) - E(-0.010)|" icon="equals">
+    **3.11 × 10⁻¹⁵ Ha**
+  </Card>
+  <Card title="|E(+0.015) - E(-0.015)|" icon="equals">
+    **2.36 × 10⁻¹² Ha**
+  </Card>
+  <Card title="|E(+0.020) - E(-0.020)|" icon="equals">
+    **1.11 × 10⁻¹⁵ Ha**
+  </Card>
+</CardGroup>
+
+From README.md:49-52:
+
+> At F = -0.005, E = -1.1373404123 Ha. At F = +0.005, E = -1.1373404123 Ha. The same value. The symmetry was exact.
+>
+> I checked this carefully. |E(+F) - E(-F)| at F = 0.005 was 2.22e-16. At F = 0.010 it was 3.11e-15. At F = 0.015 it was 2.36e-12. At F = 0.020 it was 1.11e-15. These are machine precision zeros. The energy surface is perfectly symmetric.
+
+### Physical Interpretation
+
+From README.md:375:
+
+> The perfect symmetry |E(+F) - E(-F)| at machine precision tells me that the backends are not introducing spurious field-dependent artifacts. They are not breaking parity. They are not leaking information between positive and negative field directions.
+
+## Polarizability Extraction
+
+The polarizability is extracted by fitting the energy response to a quadratic form.
+
+### Fitting Formula
+
+For a molecule in an external field:
+
+```
+ΔE(F) = -½ α F²
+```
+
+where α is the static electric polarizability.
+
+From README.md:215:
+
+> Polarizability was extracted by fitting:
+>
+> Delta E(F) = - (1/2) * alpha * F^2
+
+### Results
+
+From RESULTS.md:669-671:
+
+```text
+  α (VQE)  = 2.7500 a₀³
+  α (exact diag, STO-3G) ≈ 2.750 a₀³
+  Error = 0.0%
+```
+
+<CardGroup cols={3}>
+  <Card title="VQE Result" icon="flask">
+    **2.7500 a₀³**
+  </Card>
+  <Card title="Exact Diagonalization" icon="check-double">
+    **2.750 a₀³**
+  </Card>
+  <Card title="Error" icon="circle-check">
+    **0.0%**
+  </Card>
+</CardGroup>
+
+From README.md:53-58:
+
+> Fitting the quadratic form E(F) = E(0) - (1/2) * alpha * F^2 gives alpha = 2.750 a_0^3.
+>
+> I then computed the reference value. Exact diagonalization in the STO-3G basis for H2 gives alpha = 2.750 a_0^3.
+>
+> The error is zero to the precision I can measure.
+
+## Significance
+
+From README.md:59-62:
+
+> Let me explain why this matters. Electric polarizability measures how a molecule responds to an external field. The calculation requires the dipole operator to be correctly constructed from molecular orbitals, the Jordan-Wigner mapping to preserve matrix elements, the VQE optimization to find the correct response wavefunction at each field value, and the energy differences to be computed without systematic bias. Any error in any step propagates to the final answer.
+>
+> The fact that I observe exact agreement with reference calculations tells me the entire pipeline is internally consistent. The neural backends are not just running gates. They are preserving the structure needed for response properties.
+
+### Pipeline Components
+
+The zero-error result requires correctness at every stage:
+
+1. **PySCF molecular orbital calculation**
+2. **Dipole operator construction in MO basis**
+3. **Jordan-Wigner qubit mapping**
+4. **VQE ansatz construction (UCCSD)**
+5. **Energy minimization at each field value**
+6. **Hamiltonian expectation value evaluation**
+7. **Quadratic fit to extract polarizability**
+
+From README.md:378:
+
+> The zero-error polarizability tells me that the entire pipeline is internally consistent. The dipole operator construction, the Jordan-Wigner mapping, the VQE optimization, and the energy differencing all work together without introducing bias.
+
+## Visual Summary
+
+<Accordion title="Complete Polarizability Analysis Output (RESULTS.md:648-672)">
+
+```text
+============================================================
+POLARIZABILITY ANALYSIS
+============================================================
+
+         F               E(F)             ΔE
+  -0.02000      -1.1378560417  -0.0005500059
+  -0.01500      -1.1376154189  -0.0003093832
+  -0.01000      -1.1374435409  -0.0001375052
+  -0.00500      -1.1373404123  -0.0000343765
+  +0.00000      -1.1373060358  +0.0000000000
+  +0.00500      -1.1373404123  -0.0000343765
+  +0.01000      -1.1374435409  -0.0001375052
+  +0.01500      -1.1376154189  -0.0003093832
+  +0.02000      -1.1378560417  -0.0005500059
+
+Symmetry |E(+F)-E(-F)|:
+  ±0.0050: 2.22e-16
+  ±0.0100: 3.11e-15
+  ±0.0150: 2.36e-12
+  ±0.0200: 1.11e-15
+
+  α (VQE)  = 2.7500 a₀³
+  α (exact diag, STO-3G) ≈ 2.750 a₀³
+  Error = 0.0%
+```
+
+</Accordion>
+
+## Limitations
+
+From README.md:395:
+
+> Polarizability was tested only for H2 with the STO-3G basis. I do not know if larger molecules or better basis sets preserve this accuracy.
+
+## Conclusion
+
+From README.md:137-139:
+
+> When the fitted polarizability matches exact diagonalization to zero error, this tells me something more. The entire pipeline, from PySCF orbitals to Jordan-Wigner mapping to VQE optimization to energy differencing, is internally consistent. The neural backends slot into this pipeline as drop-in replacements for exact evolution.
+
+From README.md:143:
+
+> The backends do not merely preserve probabilities and phases. They preserve the mathematical relationships needed for response calculations.
+
+## Related Documentation
+
+- [Extended Capabilities](/research/extended-capabilities) - Stark effect, QED, polyatomic molecules
+- [Results Summary](/research/results) - All experimental results
+- [Phase Coherence](/research/phase-coherence) - Phase preservation tests

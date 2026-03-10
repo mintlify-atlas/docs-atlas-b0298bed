@@ -1,0 +1,414 @@
+---
+title: 'QuantumComputer'
+description: 'Top-level orchestrator for collapse-free quantum simulation with joint Hilbert space representation'
+---
+
+## Overview
+
+The `QuantumComputer` class is the main entry point for running quantum circuits on the collapse-free simulator. It manages the joint Hilbert space of n qubits (dimension 2^n) and provides multiple physics backends for amplitude evolution.
+
+**Key Features:**
+- Non-destructive Born-rule measurements (state never collapses)
+- True entanglement support via joint amplitude representation
+- Multiple neural physics backends (Hamiltonian, Schrödinger, Dirac)
+- Built-in quantum algorithms (Bell, GHZ, Grover, QFT, etc.)
+
+**Location:** `quantum_computer.py:1331-1582`
+
+## Constructor
+
+```python
+QuantumComputer(config: Optional[SimulatorConfig] = None)
+```
+
+Initializes the quantum computer simulator with physics backends.
+
+<ParamField path="config" type="SimulatorConfig" default="None">
+  Configuration object specifying grid size, neural network architecture, checkpoint paths, and hardware settings. If `None`, uses default configuration with:
+  - `grid_size=16`
+  - `hidden_dim=32`
+  - `expansion_dim=64`
+  - `num_spectral_layers=2`
+  - `device="cuda"` if available, else `"cpu"`
+  - `random_seed=42`
+  - Default checkpoint paths in `weights/` directory
+</ParamField>
+
+### Example
+
+```python
+from quantum_computer import QuantumComputer, SimulatorConfig
+
+# Use default configuration
+qc = QuantumComputer()
+
+# Custom configuration
+config = SimulatorConfig(
+    grid_size=32,
+    hidden_dim=64,
+    device="cuda",
+    hamiltonian_checkpoint="weights/latest.pth",
+    schrodinger_checkpoint="weights/schrodinger_crystal_final.pth",
+    dirac_checkpoint="weights/dirac_phase5_latest.pth",
+)
+qc = QuantumComputer(config)
+```
+
+## Methods
+
+### run
+
+```python
+run(
+    circuit: QuantumCircuit,
+    backend: str = "schrodinger",
+    initial_states: Optional[Dict[int, str]] = None,
+) -> MeasurementResult
+```
+
+Execute a quantum circuit on the joint Hilbert space.
+
+<ParamField path="circuit" type="QuantumCircuit" required>
+  The quantum circuit to execute
+</ParamField>
+
+<ParamField path="backend" type="str" default="schrodinger">
+  Physics backend name. Options:
+  - `"hamiltonian"`: Hamiltonian neural network (first-order Schrödinger evolution)
+  - `"schrodinger"`: Schrödinger spectral network (learned evolution)
+  - `"dirac"`: Dirac relativistic spinor network (4-component spinors)
+</ParamField>
+
+<ParamField path="initial_states" type="Dict[int, str]" default="None">
+  Optional dictionary mapping qubit indices to initial states `"0"` or `"1"`. If not provided, all qubits initialize to `|0⟩`. Example: `{0: "1", 2: "1"}` initializes qubits 0 and 2 to `|1⟩`.
+</ParamField>
+
+<ResponseField name="result" type="MeasurementResult">
+  Non-destructive measurement result containing:
+  - `full_distribution`: Dict[str, float] of probabilities for all 2^n basis states
+  - `marginal_p1`: Dict[int, float] of P(|1⟩) for each qubit
+  - `bloch_vectors`: Dict[int, Tuple[float, float, float]] for each qubit
+  - Methods: `most_probable_bitstring()`, `expectation_z(qubit)`, `entropy()`
+</ResponseField>
+
+#### Example
+
+```python
+from quantum_computer import QuantumComputer, QuantumCircuit
+
+qc = QuantumComputer()
+circuit = QuantumCircuit(2)
+circuit.h(0).cnot(0, 1)  # Bell state
+
+result = qc.run(circuit, backend="schrodinger")
+print(result.most_probable_bitstring())  # "00" or "11"
+print(result.entropy())  # ~1.0 bit (maximally entangled)
+print(result.marginal_p1[0])  # ~0.5
+```
+
+### run_with_state_snapshots
+
+```python
+run_with_state_snapshots(
+    circuit: QuantumCircuit,
+    backend: str = "schrodinger",
+    snapshot_after: Optional[List[int]] = None,
+) -> Tuple[MeasurementResult, List[Dict[str, float]]]
+```
+
+Execute circuit with non-destructive probability snapshots after specified steps. The state is never collapsed between snapshots.
+
+<ParamField path="circuit" type="QuantumCircuit" required>
+  The quantum circuit to execute
+</ParamField>
+
+<ParamField path="backend" type="str" default="schrodinger">
+  Physics backend name
+</ParamField>
+
+<ParamField path="snapshot_after" type="List[int]" default="None">
+  List of instruction indices after which to capture probability distributions. If `None`, captures after every instruction.
+</ParamField>
+
+<ResponseField name="result" type="Tuple[MeasurementResult, List[Dict[str, float]]]">
+  Tuple of:
+  1. Final `MeasurementResult`
+  2. List of probability distributions (one per snapshot), each as Dict[str, float] mapping bitstrings to probabilities
+</ResponseField>
+
+#### Example
+
+```python
+circuit = QuantumCircuit(2)
+circuit.h(0).cnot(0, 1).z(1).h(0)
+
+final, snapshots = qc.run_with_state_snapshots(
+    circuit, 
+    backend="schrodinger",
+    snapshot_after=[0, 1, 2, 3]
+)
+
+for i, snap in enumerate(snapshots):
+    print(f"Step {i}: {snap}")
+print(f"Final: {final}")
+```
+
+### bell_state
+
+```python
+bell_state(backend: str = "schrodinger") -> MeasurementResult
+```
+
+Create the Bell state |Φ+⟩ = (|00⟩ + |11⟩) / √2.
+
+<ParamField path="backend" type="str" default="schrodinger">
+  Physics backend name
+</ParamField>
+
+<ResponseField name="result" type="MeasurementResult">
+  Measurement result with P(|00⟩)≈0.5, P(|11⟩)≈0.5, entropy≈1 bit
+</ResponseField>
+
+### ghz_state
+
+```python
+ghz_state(n_qubits: int = 3, backend: str = "schrodinger") -> MeasurementResult
+```
+
+Create the GHZ state (|00...0⟩ + |11...1⟩) / √2.
+
+<ParamField path="n_qubits" type="int" default="3">
+  Number of qubits
+</ParamField>
+
+<ParamField path="backend" type="str" default="schrodinger">
+  Physics backend name
+</ParamField>
+
+<ResponseField name="result" type="MeasurementResult">
+  Measurement result with P(|00...0⟩)≈0.5, P(|11...1⟩)≈0.5
+</ResponseField>
+
+### quantum_fourier_transform
+
+```python
+quantum_fourier_transform(
+    n_qubits: int,
+    backend: str = "schrodinger"
+) -> MeasurementResult
+```
+
+Apply QFT on |00...0⟩ using standard H + controlled-Rz decomposition.
+
+<ParamField path="n_qubits" type="int" required>
+  Number of qubits
+</ParamField>
+
+<ParamField path="backend" type="str" default="schrodinger">
+  Physics backend name
+</ParamField>
+
+<ResponseField name="result" type="MeasurementResult">
+  Measurement result. For QFT on |0⟩^n, all 2^n basis states have equal probability 1/2^n, entropy = n bits.
+</ResponseField>
+
+### grover_oracle_search
+
+```python
+grover_oracle_search(
+    n_qubits: int,
+    target_bitstring: str,
+    backend: str = "schrodinger",
+    n_iterations: Optional[int] = None,
+) -> MeasurementResult
+```
+
+Grover's search algorithm with exact phase oracle using multi-controlled Z.
+
+<ParamField path="n_qubits" type="int" required>
+  Number of qubits
+</ParamField>
+
+<ParamField path="target_bitstring" type="str" required>
+  Binary string of length n_qubits to search for (e.g., `"101"`)
+</ParamField>
+
+<ParamField path="backend" type="str" default="schrodinger">
+  Physics backend name
+</ParamField>
+
+<ParamField path="n_iterations" type="int" default="None">
+  Number of Grover iterations. If `None`, uses optimal value: `max(1, round(π/4 * √(2^n)))`
+</ParamField>
+
+<ResponseField name="result" type="MeasurementResult">
+  Measurement result. The target bitstring should have highest probability (~94% for optimal iterations).
+</ResponseField>
+
+#### Example
+
+```python
+result = qc.grover_oracle_search(3, "101", backend="schrodinger")
+print(result.most_probable_bitstring())  # "101"
+print(result.full_distribution["101"])  # ~0.94
+```
+
+### variational_ansatz
+
+```python
+variational_ansatz(
+    n_qubits: int,
+    n_layers: int,
+    thetas: List[float],
+    backend: str = "schrodinger"
+) -> MeasurementResult
+```
+
+Hardware-efficient ansatz with Ry layers + CNOT entangling gates.
+
+<ParamField path="n_qubits" type="int" required>
+  Number of qubits
+</ParamField>
+
+<ParamField path="n_layers" type="int" required>
+  Number of layers
+</ParamField>
+
+<ParamField path="thetas" type="List[float]" required>
+  Rotation parameters. Must have length `n_qubits * n_layers`.
+</ParamField>
+
+<ParamField path="backend" type="str" default="schrodinger">
+  Physics backend name
+</ParamField>
+
+<ResponseField name="result" type="MeasurementResult">
+  Measurement result for the parameterized circuit
+</ResponseField>
+
+### teleportation
+
+```python
+teleportation(backend: str = "schrodinger") -> MeasurementResult
+```
+
+3-qubit teleportation protocol. Qubit 0 prepared in Ry(π/3), teleported to qubit 2.
+
+<ParamField path="backend" type="str" default="schrodinger">
+  Physics backend name
+</ParamField>
+
+<ResponseField name="result" type="MeasurementResult">
+  Measurement result. Qubit 2 should match qubit 0's initial state after corrections.
+</ResponseField>
+
+### deutsch_jozsa
+
+```python
+deutsch_jozsa(
+    n_input_qubits: int,
+    is_constant: bool,
+    backend: str = "schrodinger"
+) -> MeasurementResult
+```
+
+Deutsch-Jozsa algorithm.
+
+<ParamField path="n_input_qubits" type="int" required>
+  Number of input qubits (total qubits = n_input_qubits + 1)
+</ParamField>
+
+<ParamField path="is_constant" type="bool" required>
+  If `True`, implements constant function (all inputs measure |0⟩). If `False`, implements balanced function (at least one input measures |1⟩).
+</ParamField>
+
+<ParamField path="backend" type="str" default="schrodinger">
+  Physics backend name
+</ParamField>
+
+<ResponseField name="result" type="MeasurementResult">
+  Measurement result. For constant function, input qubits measure |0⟩^n. For balanced, at least one input qubit measures |1⟩.
+</ResponseField>
+
+## Configuration
+
+### SimulatorConfig
+
+Dataclass for global simulator configuration.
+
+```python
+@dataclass
+class SimulatorConfig:
+    # Neural network architecture (must match training checkpoints)
+    grid_size: int = 16
+    hidden_dim: int = 32
+    expansion_dim: int = 64
+    num_spectral_layers: int = 2
+    
+    # Dirac backend parameters
+    dirac_mass: float = 1.0
+    dirac_c: float = 1.0
+    gamma_representation: str = "dirac"  # or "weyl"
+    
+    # Physics parameters
+    dt: float = 0.01
+    normalization_eps: float = 1e-8
+    potential_depth: float = 5.0
+    potential_width: float = 0.3
+    
+    # Checkpoint paths
+    hamiltonian_checkpoint: str = "weights/latest.pth"
+    schrodinger_checkpoint: str = "weights/schrodinger_crystal_final.pth"
+    dirac_checkpoint: str = "weights/dirac_phase5_latest.pth"
+    
+    # Hardware
+    device: str = "cuda" if torch.cuda.is_available() else "cpu"
+    random_seed: int = 42
+    max_qubits: int = 8
+```
+
+**Important:** `grid_size`, `hidden_dim`, `expansion_dim`, and `num_spectral_layers` must match the values used during checkpoint training.
+
+## Complete Example
+
+```python
+from quantum_computer import QuantumComputer, QuantumCircuit, SimulatorConfig
+import math
+
+# Initialize with custom config
+config = SimulatorConfig(
+    grid_size=16,
+    device="cuda",
+    schrodinger_checkpoint="weights/schrodinger_crystal_final.pth",
+)
+qc = QuantumComputer(config)
+
+# Build a 3-qubit circuit
+circuit = QuantumCircuit(3)
+circuit.h(0)              # Hadamard on qubit 0
+circuit.cnot(0, 1)        # CNOT from 0 to 1
+circuit.cnot(1, 2)        # CNOT from 1 to 2
+circuit.rz(2, math.pi/4)  # Rz rotation on qubit 2
+
+# Execute on Schrödinger backend
+result = qc.run(circuit, backend="schrodinger")
+
+# Analyze results
+print(f"Most probable: {result.most_probable_bitstring()}")
+print(f"Entropy: {result.entropy():.4f} bits")
+print(f"\nPer-qubit marginals:")
+for i in range(3):
+    print(f"  q{i}: P(|1⟩)={result.marginal_p1[i]:.4f}")
+    bx, by, bz = result.bloch_vectors[i]
+    print(f"       Bloch=({bx:+.3f}, {by:+.3f}, {bz:+.3f})")
+
+# Compare across backends
+for backend in ["hamiltonian", "schrodinger", "dirac"]:
+    result = qc.run(circuit, backend=backend)
+    print(f"\n{backend}: {result.most_probable_bitstring()}")
+```
+
+## See Also
+
+- [QuantumCircuit](/api/quantum-circuit) - Build quantum circuits
+- [JointHilbertState](/api/hilbert-state) - Access state amplitudes directly

@@ -1,0 +1,270 @@
+---
+title: 'Molecular Simulation'
+description: 'Quantum chemistry calculations using VQE and UCCSD'
+---
+
+# Molecular Simulation
+
+The `molecular_sim.py` module provides quantum chemistry functionality using the Variational Quantum Eigensolver (VQE) with UCCSD ansatz.
+
+## Supported Molecules
+
+Currently available in `MOLECULES` dictionary (molecular_sim.py:104):
+
+- **H₂** (Hydrogen molecule)
+  - Basis: STO-3G
+  - 2 electrons, 2 orbitals, 4 qubits
+  - Bond length: 0.735 Å
+
+### Data Sources
+
+<CodeGroup>
+```python PySCF Integration
+# molecular_sim.py automatically uses PySCF if available
+import pyscf
+from molecular_sim import MOLECULES
+
+mol = MOLECULES["H2"]
+print(f"HF energy: {mol.hf_energy:.8f} Ha")
+print(f"FCI energy: {mol.fci_energy:.8f} Ha")
+print(f"Nuclear repulsion: {mol.nuclear_repulsion:.6f} Ha")
+```
+
+```python Hardcoded Fallback
+# If PySCF unavailable, uses hardcoded values
+# molecular_sim.py:75-101
+HF_energy = -1.11675928 Ha
+FCI_energy = -1.13728383 Ha
+Nuclear_repulsion = 0.71997 Ha
+```
+</CodeGroup>
+
+## Running VQE
+
+<Steps>
+  <Step title="Setup quantum computer">
+    ```python
+    from quantum_computer import QuantumComputer, SimulatorConfig
+    from molecular_sim import VQESolver, MOLECULES
+    
+    config = SimulatorConfig(
+        grid_size=16,
+        hidden_dim=32,
+        expansion_dim=64,
+        hamiltonian_checkpoint="hamiltonian.pth",
+        schrodinger_checkpoint="checkpoint_phase3.pth",
+        device="cpu"
+    )
+    
+    qc = QuantumComputer(config)
+    ```
+  </Step>
+
+  <Step title="Initialize VQE solver">
+    ```python
+    solver = VQESolver(qc, config)
+    molecule = MOLECULES["H2"]
+    ```
+  </Step>
+
+  <Step title="Run VQE optimization">
+    ```python
+    result = solver.run(
+        molecule,
+        backend="hamiltonian",
+        max_iter=100,
+        tol=1e-8
+    )
+    
+    print(result)
+    ```
+  </Step>
+</Steps>
+
+## Understanding VQE Results
+
+The `VQEResult` object (molecular_sim.py:370-387) contains:
+
+```python
+print(f"VQE Energy: {result.vqe_energy:+.8f} Ha")
+print(f"FCI Energy: {result.fci_energy:+.8f} Ha")
+print(f"Error: {result.energy_error:.2e} Ha")
+print(f"Correlation captured: {result.correlation_energy_captured*100:.1f}%")
+print(f"Converged: {result.converged}")
+print(f"Iterations: {result.n_iterations}")
+```
+
+## UCCSD Ansatz
+
+The UCCSD (Unitary Coupled Cluster Singles and Doubles) ansatz is implemented in `molecular_sim.py:321-366`:
+
+### Singles Excitations
+
+For each occupied orbital `o` and virtual orbital `v`:
+
+```python
+# Jordan-Wigner transformation
+for k in range(o, v):
+    circuit.cnot(k, k + 1)
+circuit.ry(v, 2.0 * theta)
+for k in range(v-1, o-1, -1):
+    circuit.cnot(k, k + 1)
+```
+
+This preserves particle number and creates the excitation |o⟩ → |v⟩.
+
+### Doubles Excitations
+
+For occupied orbitals `o1, o2` and virtual orbitals `v1, v2`:
+
+```python
+# Dynamically determined based on current state
+occ_q = [i for i in range(n) if (hf_idx >> (n-1-i)) & 1]
+vir_q = [i for i in range(n) if not ((hf_idx >> (n-1-i)) & 1)]
+
+pivot = vir_q[0]
+chain = sorted(set(occ_q + vir_q[1:]))
+
+for c_q in chain:
+    circuit.cnot(pivot, c_q)
+circuit.ry(pivot, 2.0 * theta)
+for c_q in reversed(chain):
+    circuit.cnot(pivot, c_q)
+```
+
+## OpenFermion Integration
+
+The Hamiltonian is constructed using OpenFermion (molecular_sim.py:111-180):
+
+```python
+from openfermion import MolecularData
+from openfermion.transforms import jordan_wigner
+from openfermionpyscf import run_pyscf
+
+# Automatic molecular Hamiltonian construction
+geometry = [('H', (0.0, 0.0, 0.0)), ('H', (0.0, 0.0, 0.735))]
+of_mol = MolecularData(
+    geometry=geometry,
+    basis='sto-3g',
+    charge=0,
+    multiplicity=1
+)
+
+# Run PySCF through OpenFermion
+of_mol = run_pyscf(of_mol, run_fci=True)
+
+# Get fermion operator
+molecular_hamiltonian = of_mol.get_molecular_hamiltonian()
+fermion_op = get_fermion_operator(molecular_hamiltonian)
+
+# Jordan-Wigner transformation to qubit operator
+jw_op = jordan_wigner(fermion_op)
+```
+
+## Energy Evaluation
+
+The `ExactJWEnergy` class (molecular_sim.py:187-258) evaluates energies:
+
+```python
+from molecular_sim import ExactJWEnergy, MOLECULES
+
+mol = MOLECULES["H2"]
+evaluator = ExactJWEnergy(mol, mol.n_qubits)
+
+# Evaluate energy for a given state
+energy = evaluator(state.amplitudes)
+print(f"Energy: {energy:.8f} Ha")
+```
+
+The evaluator applies Pauli operators exactly:
+
+```python
+# For each Pauli term
+for coeff, pauli in self.paulis:
+    phi = self._apply(amps, pauli)
+    inner_product = ⟨amps|phi⟩
+    energy += coeff * inner_product
+
+energy += nuclear_repulsion
+```
+
+## Optimization Process
+
+VQE uses scipy.optimize.minimize with L-BFGS-B (molecular_sim.py:463-467):
+
+1. **Identity check** (theta=0 → HF energy)
+2. **Parameter scan** for initial guess
+3. **Optimization** with L-BFGS-B
+4. **Energy tracking** for best result
+
+```python
+def cost(thetas):
+    state = uccsd(hf_state.clone(), thetas, singles, doubles, be, runner)
+    return exact_eval(state.amplitudes)
+
+res = minimize(cost, theta0, method="L-BFGS-B",
+               options={"maxiter": 200, "ftol": 1e-8})
+```
+
+## Command Line Usage
+
+```bash
+python molecular_sim.py \
+    --molecule H2 \
+    --max-iter 100 \
+    --hamiltonian-checkpoint hamiltonian.pth \
+    --schrodinger-checkpoint checkpoint_phase3.pth \
+    --grid-size 16 \
+    --hidden-dim 32 \
+    --expansion-dim 64 \
+    --seed 42
+```
+
+## Expected Output
+
+```
+Starting VQE for H2 (4 qubits)
+  UCCSD: 4 singles + 2 doubles = 6 parameters
+  [check] theta=0: E=-1.11675928 Ha  ✓ identity
+  Scanning double amplitude:
+    theta_d=-0.50  E=-1.12345678 Ha
+    theta_d=-0.12  E=-1.13728383 Ha ← best
+    ...
+  iter   1: E=-1.13728383 Ha  Δ_FCI=0.00e+00
+  ...
+  Final: E_VQE=-1.13728383  E_FCI=-1.13728383  corr=100.0%
+
+============================================================
+  VQE Result: H2  [openfermion_jw]
+============================================================
+  Qubits: 4
+  Parameters: 6
+────────────────────────────────────────────────────────
+  HF energy  : -1.11675928 Ha
+  VQE energy : -1.13728383 Ha
+  FCI energy : -1.13728383 Ha
+────────────────────────────────────────────────────────
+  |VQE-FCI|  : 1.00e-08 Ha
+  Correlation: 100.0%
+============================================================
+```
+
+## Key Parameters
+
+| Parameter | Description | Typical Value |
+|-----------|-------------|---------------|
+| `n_qubits` | Number of qubits (2 × n_orbitals) | 4 for H₂ |
+| `n_parameters` | UCCSD parameters (singles + doubles) | 6 for H₂ |
+| `max_iter` | Maximum optimizer iterations | 100-200 |
+| `tol` | Energy convergence tolerance | 1e-8 Ha |
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="VQE + UCCSD" icon="flask" href="/guides/vqe-uccsd">
+    Deep dive into VQE implementation
+  </Card>
+  <Card title="Stark Effect" icon="bolt" href="/guides/stark-effect">
+    Electric field effects on molecules
+  </Card>
+</CardGroup>

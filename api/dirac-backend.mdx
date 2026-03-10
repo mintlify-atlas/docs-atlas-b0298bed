@@ -1,0 +1,391 @@
+---
+title: DiracBackend
+description: Relativistic Dirac equation backend with 4-component spinor evolution
+---
+
+## Overview
+
+The `DiracBackend` implements relativistic quantum mechanics using the Dirac equation. It expands 2-channel wavefunctions into 4-component spinors, applies the Dirac Hamiltonian (learned or analytical), and projects back to 2-channel representation.
+
+**Key features:**
+- 4-component spinor representation (particle + antiparticle)
+- Gamma matrix algebra (Dirac or Weyl representation)
+- Relativistic evolution with mass and speed of light
+- Automatic fallback to analytical Dirac evolution
+
+## Architecture
+
+The backend uses a `DiracSpectralNet` with 8-channel input/output:
+
+```
+Input: (8, G, G) [4 spinor components × (real, imag)]
+  ↓
+Conv2d: 8 → hidden_dim
+  ↓
+GELU
+  ↓
+Conv2d: hidden_dim → expansion_dim
+  ↓
+GELU
+  ↓
+Spectral Layers (num_spectral_layers)
+  ↓
+GELU
+  ↓
+Conv2d: expansion_dim → hidden_dim
+  ↓
+GELU
+  ↓
+Conv2d: hidden_dim → 8
+  ↓
+Output: (8, G, G) evolved spinor
+```
+
+### Network Parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `grid_size` | 16 | Spatial grid resolution (G×G) |
+| `hidden_dim` | 32 | Hidden layer dimensionality |
+| `expansion_dim` | 64 | Expanded feature dimension |
+| `num_spectral_layers` | 2 | Number of spectral convolution layers |
+| `dirac_mass` | 1.0 | Particle mass m |
+| `dirac_c` | 1.0 | Speed of light c |
+| `gamma_representation` | "dirac" | Gamma matrix representation |
+
+## Initialization
+
+### From SimulatorConfig (quantum_computer.py)
+
+```python
+from quantum_computer import SimulatorConfig, HamiltonianBackend, DiracBackend
+
+config = SimulatorConfig(
+    grid_size=16,
+    hidden_dim=32,
+    expansion_dim=64,
+    num_spectral_layers=2,
+    dirac_mass=1.0,
+    dirac_c=1.0,
+    gamma_representation="dirac",  # or "weyl"
+    dirac_checkpoint="weights/dirac_phase5_latest.pth",
+    device="cuda"
+)
+
+# DiracBackend requires HamiltonianBackend as fallback
+h_backend = HamiltonianBackend(config)
+d_backend = DiracBackend(config, h_backend)
+```
+
+### From FrameworkConfig (quantum_simulator.py)
+
+```python
+from quantum_simulator import FrameworkConfig, HamiltonianBackend, DiracBackend
+
+config = FrameworkConfig(
+    grid_size=16,
+    hidden_dim=32,
+    expansion_dim=64,
+    num_spectral_layers=2,
+    electron_mass=1.0,
+    c_light=137.035999084,  # Fine structure constant
+    dirac_checkpoint="weights/dirac_phase5_latest.pth",
+    device="cpu"
+)
+
+h_backend = HamiltonianBackend(config)
+d_backend = DiracBackend(config, h_backend)
+```
+
+## Checkpoint File
+
+**Default Path:** `weights/dirac_phase5_latest.pth`
+
+The checkpoint contains trained weights for the Dirac network:
+
+- **Expected keys:** `model_state_dict` (preferred) or direct state dict
+- **Architecture match required:** Must match all network dimensions
+- **Fallback behavior:** If missing/failed, uses analytical Dirac evolution
+- **Phase naming:** `phase5` suggests multi-stage training
+
+## Methods
+
+### apply() / evolve_amplitude()
+
+```python
+def evolve_amplitude(self, amp: torch.Tensor, dt: float) -> torch.Tensor:
+    """
+    Evolve amplitude using Dirac spinor representation.
+    
+    Args:
+        amp: (2, G, G) tensor [real_channel, imaginary_channel, x, y]
+        dt: Time step size
+    
+    Returns:
+        Evolved (2, G, G) amplitude tensor (normalized)
+    """
+```
+
+**Algorithm:**
+
+1. **Pack:** Expand `(2, G, G)` → 4-component spinor `(4, G, G)` complex
+   ```python
+   psi_c = amp[0] + i * amp[1]
+   spinor[0] = spinor[1] = psi_c * sqrt(0.5)
+   spinor[2] = spinor[3] = psi_c.conj() * sqrt(0.5)
+   ```
+
+2. **Evolve:** Apply Dirac evolution
+   - If network available: `spinor_out = DiracSpectralNet(spinor_channels)`
+   - If fallback: `spinor_out = spinor - i*dt*H_Dirac(spinor)`
+
+3. **Unpack:** Project spinor → `(2, G, G)` amplitude
+   ```python
+   particle = mean(spinor[:2])  # Average upper 2 components
+   amp_out = [particle.real, particle.imag]
+   ```
+
+4. Normalize and return
+
+**Example:**
+
+```python
+import torch
+
+# Initial amplitude
+amp = torch.randn(2, 16, 16)
+amp = amp / torch.sqrt((amp**2).sum())
+
+# Relativistic evolution
+evolved_amp = d_backend.evolve_amplitude(amp, dt=0.01)
+```
+
+### apply_phase()
+
+```python
+def apply_phase(self, amp: torch.Tensor, phase_angle: float) -> torch.Tensor:
+    """
+    Apply global phase rotation (delegates to HamiltonianBackend).
+    
+    Args:
+        amp: (2, G, G) amplitude tensor
+        phase_angle: Phase angle φ in radians
+    
+    Returns:
+        Phase-rotated amplitude
+    """
+```
+
+Delegates to internal `HamiltonianBackend`.
+
+## Technical Details
+
+### Spinor Structure
+
+The 4-component Dirac spinor represents:
+
+```
+ψ = [ψ₁]   ψ₁, ψ₂: particle (electron) components
+    [ψ₂]   ψ₃, ψ₄: antiparticle (positron) components
+    [ψ₃]
+    [ψ₄]
+```
+
+Each component is a complex spatial field on the (G, G) grid.
+
+### Gamma Matrices
+
+The backend supports two representations:
+
+**Dirac representation:**
+```python
+γ⁰ = [[1, 0, 0, 0],      γ¹ = [[0, 0, 0, 1],
+      [0, 1, 0, 0],            [0, 0, 1, 0],
+      [0, 0,-1, 0],            [0,-1, 0, 0],
+      [0, 0, 0,-1]]            [-1, 0, 0, 0]]
+```
+
+**Weyl representation:**
+```python
+γ⁰ = [[0, 0, 1, 0],      (chiral basis)
+      [0, 0, 0, 1],
+      [1, 0, 0, 0],
+      [0, 1, 0, 0]]
+```
+
+Similar definitions for γ² and γ³.
+
+### Analytical Dirac Hamiltonian
+
+When network is unavailable, uses analytical evolution:
+
+```
+H_Dirac = c(α·p) + mc²β
+
+where:
+  α = γ⁰γ   (alpha matrices)
+  β = γ⁰     (beta matrix)
+  p = -i∇    (momentum operator, computed via FFT)
+```
+
+**Implementation:**
+```python
+for component in [0, 1, 2, 3]:
+    fft = FFT2D(spinor[component])
+    p_x = IFFT2D(fft * kx_grid)
+    p_y = IFFT2D(fft * ky_grid)
+    
+    H_spinor += c * (alpha_x @ p_x + alpha_y @ p_y) + m*c² * beta
+
+spinor_new = spinor - i*dt*H_spinor
+```
+
+### Packing and Unpacking
+
+**Packing:** Non-relativistic → Relativistic
+```python
+psi_complex = amp[0] + i*amp[1]
+
+spinor[0] = psi_complex * sqrt(0.5)  # Upper particle
+spinor[1] = psi_complex * sqrt(0.5)  # Upper particle
+spinor[2] = psi_complex.conj() * sqrt(0.5)  # Lower antiparticle
+spinor[3] = psi_complex.conj() * sqrt(0.5)  # Lower antiparticle
+```
+
+**Unpacking:** Relativistic → Non-relativistic
+```python
+particle = mean(spinor[0:2])  # Project to particle sector
+amp[0] = particle.real
+amp[1] = particle.imag
+```
+
+## Usage in Quantum Circuits
+
+```python
+from quantum_computer import QuantumComputer, QuantumCircuit, SimulatorConfig
+
+config = SimulatorConfig(
+    dirac_checkpoint="weights/dirac_phase5_latest.pth",
+    dirac_mass=1.0,
+    dirac_c=1.0
+)
+qc = QuantumComputer(config)
+
+# Create entangled state with relativistic evolution
+circuit = QuantumCircuit(2)
+circuit.h(0)
+circuit.evolve([0], dt=0.01, steps=5)  # Relativistic free evolution
+circuit.cnot(0, 1)
+
+# Run with Dirac backend
+result = qc.run(circuit, backend="dirac")
+print(result)
+```
+
+## Relativistic Effects
+
+The Dirac backend naturally includes:
+
+- **Zitterbewegung:** Rapid oscillatory motion of particle
+- **Spin-orbit coupling:** Intrinsic from Dirac equation
+- **Antiparticle dynamics:** Encoded in lower spinor components
+- **Fine structure:** Relativistic corrections to energy levels
+
+## Configuration Reference
+
+### SimulatorConfig Parameters
+
+```python
+class SimulatorConfig:
+    grid_size: int = 16                    # Spatial grid resolution
+    hidden_dim: int = 32                   # Hidden layer dimension
+    expansion_dim: int = 64                # Expansion dimension
+    num_spectral_layers: int = 2           # Number of spectral layers
+    dirac_mass: float = 1.0                # Particle mass m
+    dirac_c: float = 1.0                   # Speed of light c
+    gamma_representation: str = "dirac"    # Gamma matrix type
+    dt: float = 0.01                       # Time step
+    normalization_eps: float = 1e-8        # Normalization epsilon
+    dirac_checkpoint: str = "weights/dirac_phase5_latest.pth"
+    device: str = "cuda" or "cpu"
+```
+
+### FrameworkConfig Parameters
+
+```python
+class FrameworkConfig:
+    c_light: float = 137.035999084         # Speed of light (natural units)
+    alpha_fs: float = 0.0072973525693      # Fine structure constant
+    electron_mass: float = 1.0             # Electron mass
+    # ... (same network parameters as above)
+```
+
+## Performance Notes
+
+- **Computational cost:** ~4× more expensive than Schrödinger (4 spinor components)
+- **Memory usage:** 8 channels (real+imag for 4 components)
+- **GPU acceleration:** Essential for practical use
+- **Fallback speed:** Analytical Dirac evolution is slower than learned network
+
+## Physics Considerations
+
+### When to Use DiracBackend
+
+✅ **Use when:**
+- Simulating high-energy physics
+- Modeling relativistic effects
+- Studying Zitterbewegung
+- Including antiparticle dynamics
+- Fine structure calculations
+
+❌ **Avoid when:**
+- Non-relativistic regime (v &lt;&lt; c)
+- Limited computational resources
+- Simple gate operations suffice
+
+### Accuracy vs. SchrodingerBackend
+
+Dirac backend provides additional physics:
+```
+E_Dirac = sqrt(p²c² + m²c⁴)  (relativistic)
+E_Schrodinger = p²/(2m)       (non-relativistic limit)
+```
+
+## Source Code
+
+- **quantum_computer.py:** Lines 638-735
+- **quantum_simulator.py:** Lines 503-583
+- **GammaMatrices:** quantum_computer.py:231-275, quantum_simulator.py:359-376
+
+## Advanced Usage
+
+### Direct Spinor Evolution
+
+```python
+# Create 4-component spinor
+spinor = torch.zeros(4, 16, 16, dtype=torch.complex64)
+spinor[0] = torch.randn(16, 16) + 1j*torch.randn(16, 16)
+
+# Evolve directly
+evolved_spinor = d_backend.evolve_spinor(spinor, dt=0.001)
+```
+
+Available in `quantum_simulator.py` DiracBackend.
+
+### Custom Gamma Representation
+
+```python
+config = SimulatorConfig(
+    gamma_representation="weyl",  # Chiral basis
+    dirac_checkpoint="weights/dirac_phase5_latest.pth"
+)
+
+d_backend = DiracBackend(config, h_backend)
+```
+
+## See Also
+
+- [HamiltonianBackend](/api/hamiltonian-backend) - Non-relativistic H operator
+- [SchrodingerBackend](/api/schrodinger-backend) - Non-relativistic evolution
+- [IPhysicsBackend](/api/physics-backend) - Abstract backend interface
+- [Zitterbewegung](/physics/zitterbewegung) - Relativistic oscillations

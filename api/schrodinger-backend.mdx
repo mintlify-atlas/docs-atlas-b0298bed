@@ -1,0 +1,289 @@
+---
+title: SchrodingerBackend
+description: Schrödinger evolution network backend with 2-channel spectral architecture
+---
+
+## Overview
+
+The `SchrodingerBackend` uses a learned 2-channel spectral neural network for direct wavefunction propagation. It processes complex wavefunctions represented as `[real, imaginary]` channels and learns the full time evolution operator from training data.
+
+**Fallback:** If the checkpoint is unavailable, automatically falls back to `HamiltonianBackend`.
+
+## Architecture
+
+The backend uses a `SchrodingerSpectralNet` with an expansion-contraction structure:
+
+```
+Input: (2, G, G) [real, imag] wavefunction
+  ↓
+Conv2d: 2 → hidden_dim
+  ↓
+GELU
+  ↓
+Conv2d: hidden_dim → expansion_dim
+  ↓
+GELU
+  ↓
+Spectral Layers (num_spectral_layers)
+  ↓
+GELU
+  ↓
+Conv2d: expansion_dim → hidden_dim
+  ↓
+GELU
+  ↓
+Conv2d: hidden_dim → 2
+  ↓
+Output: (2, G, G) evolved wavefunction
+```
+
+### Network Parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `grid_size` | 16 | Spatial grid resolution (G×G) |
+| `hidden_dim` | 32 | Hidden layer dimensionality |
+| `expansion_dim` | 64 | Expanded feature dimension |
+| `num_spectral_layers` | 2 | Number of spectral convolution layers |
+
+## Initialization
+
+### From SimulatorConfig (quantum_computer.py)
+
+```python
+from quantum_computer import SimulatorConfig, HamiltonianBackend, SchrodingerBackend
+
+config = SimulatorConfig(
+    grid_size=16,
+    hidden_dim=32,
+    expansion_dim=64,
+    num_spectral_layers=2,
+    schrodinger_checkpoint="weights/schrodinger_crystal_final.pth",
+    device="cuda"
+)
+
+# SchrodingerBackend requires HamiltonianBackend as fallback
+h_backend = HamiltonianBackend(config)
+s_backend = SchrodingerBackend(config, h_backend)
+```
+
+### From FrameworkConfig (quantum_simulator.py)
+
+```python
+from quantum_simulator import FrameworkConfig, HamiltonianBackend, SchrodingerBackend
+
+config = FrameworkConfig(
+    grid_size=16,
+    hidden_dim=32,
+    expansion_dim=64,
+    num_spectral_layers=2,
+    schrodinger_checkpoint="weights/schrodinger_crystal_final.pth",
+    device="cpu"
+)
+
+h_backend = HamiltonianBackend(config)
+s_backend = SchrodingerBackend(config, h_backend)
+```
+
+## Checkpoint File
+
+**Default Path:** `weights/schrodinger_crystal_final.pth`
+
+The checkpoint contains the trained weights for the Schrödinger network:
+
+- **Expected keys:** `model_state_dict` (preferred) or direct state dict
+- **Architecture match required:** Must match `grid_size`, `hidden_dim`, `expansion_dim`, and `num_spectral_layers`
+- **Fallback behavior:** If missing or load fails, falls back to `HamiltonianBackend` for evolution
+
+## Methods
+
+### apply() / evolve_amplitude()
+
+```python
+def evolve_amplitude(self, amp: torch.Tensor, dt: float) -> torch.Tensor:
+    """
+    Evolve amplitude using learned Schrödinger network.
+    
+    Args:
+        amp: (2, G, G) tensor [real_channel, imaginary_channel, x, y]
+        dt: Time step (not explicitly used; network learns implicit dt)
+    
+    Returns:
+        Evolved (2, G, G) amplitude tensor (normalized)
+    """
+```
+
+**Algorithm:**
+
+1. Add batch dimension: `amp.unsqueeze(0)` → `(1, 2, G, G)`
+2. Forward pass through network: `out = net(amp)`
+3. Remove batch dimension: `out.squeeze(0)` → `(2, G, G)`
+4. Normalize: `out / sqrt(sum(out²) + eps)`
+5. Return evolved amplitude
+
+**Note:** Unlike `HamiltonianBackend`, the time step `dt` is not explicitly used during inference. The network learns a fixed evolution step from training.
+
+**Example:**
+
+```python
+import torch
+
+# Create initial amplitude
+amp = torch.randn(2, 16, 16)
+amp = amp / torch.sqrt((amp**2).sum())
+
+# Evolve (network has implicit learned dt)
+evolved_amp = s_backend.evolve_amplitude(amp, dt=0.01)
+```
+
+### apply_phase()
+
+```python
+def apply_phase(self, amp: torch.Tensor, phase_angle: float) -> torch.Tensor:
+    """
+    Apply global phase rotation (delegates to HamiltonianBackend).
+    
+    Args:
+        amp: (2, G, G) amplitude tensor
+        phase_angle: Phase angle φ in radians
+    
+    Returns:
+        Phase-rotated amplitude
+    """
+```
+
+Delegates to the internal `HamiltonianBackend` for phase operations.
+
+## Technical Details
+
+### Expansion-Contraction Pattern
+
+The network architecture follows an expansion-contraction design:
+
+1. **Input projection:** 2 channels → `hidden_dim` channels
+2. **Expansion:** `hidden_dim` → `expansion_dim` (typically 2×)
+3. **Spectral processing:** Multiple spectral convolution layers at high dimension
+4. **Contraction:** `expansion_dim` → `hidden_dim`
+5. **Output projection:** `hidden_dim` → 2 channels
+
+This allows the network to:
+- Capture complex dynamics in expanded feature space
+- Apply spectral operations efficiently
+- Project back to physical wavefunction representation
+
+### Spectral Layers
+
+Each `SpectralLayer` operates in Fourier domain:
+
+```python
+x_fft = rfft2(x)  # Real FFT
+kernel_complex = kernel_real + i * kernel_imag
+y_fft = x_fft * kernel_complex
+y = irfft2(y_fft)
+```
+
+This enables:
+- Global spatial interactions
+- Efficient long-range propagation
+- Learned frequency filtering
+
+### Automatic Fallback
+
+If the checkpoint fails to load:
+
+```python
+if self.net is None:
+    return self.hamiltonian.evolve_amplitude(amp, dt)
+```
+
+The backend seamlessly falls back to Hamiltonian-based evolution.
+
+## Usage in Quantum Circuits
+
+```python
+from quantum_computer import QuantumComputer, QuantumCircuit, SimulatorConfig
+
+config = SimulatorConfig(
+    schrodinger_checkpoint="weights/schrodinger_crystal_final.pth"
+)
+qc = QuantumComputer(config)
+
+# Create 3-qubit GHZ state
+circuit = QuantumCircuit(3)
+circuit.h(0)
+circuit.cnot(0, 1)
+circuit.cnot(1, 2)
+
+# Run with Schrödinger backend (default)
+result = qc.run(circuit, backend="schrodinger")
+print(result)
+# Expected: |000⟩ and |111⟩ with ~50% probability each
+```
+
+## Advanced: Free Evolution
+
+```python
+# Add free Hamiltonian evolution to circuit
+circuit = QuantumCircuit(2)
+circuit.h(0)
+circuit.evolve([0, 1], dt=0.01, steps=10)  # Evolve all qubits
+circuit.cnot(0, 1)
+
+result = qc.run(circuit, backend="schrodinger")
+```
+
+The `SchrodingerBackend` is applied to each amplitude independently during the evolve step.
+
+## Configuration Reference
+
+### SimulatorConfig Parameters
+
+```python
+class SimulatorConfig:
+    grid_size: int = 16                    # Spatial grid resolution
+    hidden_dim: int = 32                   # Hidden layer dimension
+    expansion_dim: int = 64                # Expansion layer dimension
+    num_spectral_layers: int = 2           # Number of spectral layers
+    dt: float = 0.01                       # Default time step
+    normalization_eps: float = 1e-8        # Normalization epsilon
+    schrodinger_checkpoint: str = "weights/schrodinger_crystal_final.pth"
+    device: str = "cuda" or "cpu"
+```
+
+## Training Considerations
+
+The Schrödinger network is trained to:
+- Learn accurate wavefunction propagation
+- Preserve unitarity (approximately)
+- Match ground truth Schrödinger evolution
+- Generalize across different potential landscapes
+
+**Checkpoint naming:** `schrodinger_crystal_final.pth` suggests training on crystal/lattice potentials.
+
+## Performance Notes
+
+- **Speed:** Faster than Hamiltonian backend for long evolution (single network pass)
+- **Accuracy:** Depends on training quality and generalization
+- **Memory:** Additional overhead from expansion dimension
+- **GPU:** Strongly recommended for real-time performance
+
+## Comparison with HamiltonianBackend
+
+| Feature | SchrodingerBackend | HamiltonianBackend |
+|---------|-------------------|--------------------|
+| Network input | 2-channel wavefunction | Single-channel field |
+| Evolution method | Direct learned propagation | First-order H operator |
+| Time step | Implicit (learned) | Explicit dt parameter |
+| Complexity | Higher (expansion) | Lower (spectral only) |
+| Fallback | Yes (to Hamiltonian) | No (uses Laplacian) |
+
+## Source Code
+
+- **quantum_computer.py:** Lines 589-636
+- **quantum_simulator.py:** Lines 468-501
+
+## See Also
+
+- [HamiltonianBackend](/api/hamiltonian-backend) - Hamiltonian operator backend
+- [DiracBackend](/api/dirac-backend) - Relativistic spinor evolution
+- [IPhysicsBackend](/api/physics-backend) - Abstract backend interface

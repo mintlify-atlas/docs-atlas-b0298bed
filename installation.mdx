@@ -1,0 +1,269 @@
+---
+title: Installation
+description: Install QC and set up your quantum simulation environment
+---
+
+# Installation
+
+This guide walks you through installing QC (Quasi Quantum Computing) and all required dependencies.
+
+## System Requirements
+
+<CardGroup cols={2}>
+  <Card title="Python Version" icon="python">
+    Python 3.8 or higher
+  </Card>
+  <Card title="Hardware" icon="microchip">
+    CPU or NVIDIA GPU (CUDA-compatible)
+  </Card>
+  <Card title="Memory" icon="memory">
+    Minimum 4GB RAM (8GB+ recommended)
+  </Card>
+  <Card title="Storage" icon="hard-drive">
+    ~1GB for code and checkpoints
+  </Card>
+</CardGroup>
+
+<Note>
+QC can run on CPU or GPU. GPU execution is faster but not required. The simulator automatically detects available hardware.
+</Note>
+
+## Prerequisites
+
+Before installing QC, ensure you have the following:
+
+- **Python 3.8+** with pip
+- **Git** for cloning the repository
+- **(Optional)** CUDA toolkit if using GPU acceleration
+
+## Installation Steps
+
+<Steps>
+  <Step title="Clone the Repository">
+    Clone the QC source code from your repository:
+
+    ```bash
+    git clone <repository-url>
+    cd qc-simulator
+    ```
+  </Step>
+
+  <Step title="Create Virtual Environment">
+    Create and activate a Python virtual environment:
+
+    ```bash
+    python3 -m venv env
+    source env/bin/activate  # On Linux/macOS
+    # env\Scripts\activate   # On Windows
+    ```
+
+    <Note>
+    Using a virtual environment is **strongly recommended** to avoid dependency conflicts.
+    </Note>
+  </Step>
+
+  <Step title="Install Dependencies">
+    Install required Python packages:
+
+    ```bash
+    pip install torch torchvision numpy scipy matplotlib
+    pip install pyscf openfermion openfermionpyscf
+    ```
+
+    <Accordion title="Core Dependencies Breakdown">
+      - **PyTorch** (`torch`): Neural network backends and tensor operations
+      - **NumPy** (`numpy`): Numerical computations and array operations
+      - **SciPy** (`scipy`): Optimization algorithms (L-BFGS-B for VQE)
+      - **Matplotlib** (`matplotlib`): Visualization and plotting
+      - **PySCF** (`pyscf`): Quantum chemistry calculations and molecular data
+      - **OpenFermion** (`openfermion`): Fermionic operators and Jordan-Wigner transformation
+      - **OpenFermion-PySCF** (`openfermionpyscf`): Integration between OpenFermion and PySCF
+    </Accordion>
+  </Step>
+
+  <Step title="Download Neural Network Checkpoints">
+    QC requires pre-trained neural network checkpoint files for the physics backends. Ensure you have:
+
+    - `hamiltonian.pth` - Hamiltonian backend weights
+    - `checkpoint_phase3_training_epoch_18921_20260224_154739.pth` - Schrödinger backend
+    - `best_dirac.pth` - Dirac backend weights
+
+    Place these checkpoint files in the same directory as your Python scripts, or specify their paths when running simulations.
+
+    <Warning>
+    The simulator will fall back to analytical methods if checkpoint files are missing, but neural backend features will be unavailable.
+    </Warning>
+  </Step>
+
+  <Step title="Verify Installation">
+    Verify your installation by running a simple test:
+
+    ```bash
+    python3 quantum_computer.py \
+      --hamiltonian-checkpoint hamiltonian.pth \
+      --schrodinger-checkpoint checkpoint_phase3_training_epoch_18921_20260224_154739.pth \
+      --dirac-checkpoint best_dirac.pth \
+      --grid-size 16 \
+      --hidden-dim 32 \
+      --expansion-dim 64 \
+      --device cpu
+    ```
+
+    You should see output showing successful backend loading and test results:
+
+    ```text
+    2026-03-01 22:51:18,844 | QuantumComputer | INFO | HamiltonianBackend: loaded hamiltonian.pth
+    2026-03-01 22:51:18,869 | QuantumComputer | INFO | SchrodingerBackend: loaded checkpoint_phase3_training_epoch_18921_20260224_154739.pth
+    2026-03-01 22:51:18,891 | QuantumComputer | INFO | DiracBackend: loaded best_dirac.pth
+    ```
+  </Step>
+</Steps>
+
+## Configuration Options
+
+QC supports various configuration parameters that must match the values used during neural network training:
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `--grid-size` | 16 | Spatial grid resolution (G×G) |
+| `--hidden-dim` | 32 | Hidden layer dimension in neural networks |
+| `--expansion-dim` | 64 | Expansion dimension for Schrödinger/Dirac backends |
+| `--device` | auto | Computation device: `cpu` or `cuda` |
+| `--hamiltonian-checkpoint` | `weights/latest.pth` | Path to Hamiltonian weights |
+| `--schrodinger-checkpoint` | `weights/schrodinger_crystal_final.pth` | Path to Schrödinger weights |
+| `--dirac-checkpoint` | `weights/dirac_phase5_latest.pth` | Path to Dirac weights |
+
+<Note>
+**Important**: The `grid-size`, `hidden-dim`, and `expansion-dim` parameters must match the values used during checkpoint training. Using mismatched values will cause errors.
+</Note>
+
+## GPU Acceleration (Optional)
+
+To enable GPU acceleration:
+
+<Steps>
+  <Step title="Install CUDA Toolkit">
+    Install the appropriate CUDA toolkit for your GPU:
+    - Visit [NVIDIA CUDA Downloads](https://developer.nvidia.com/cuda-downloads)
+    - Follow installation instructions for your operating system
+  </Step>
+
+  <Step title="Install PyTorch with CUDA">
+    Install PyTorch with CUDA support:
+
+    ```bash
+    pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+    ```
+
+    Replace `cu118` with your CUDA version (e.g., `cu121` for CUDA 12.1).
+  </Step>
+
+  <Step title="Verify CUDA Availability">
+    Check if PyTorch detects your GPU:
+
+    ```python
+    import torch
+    print(torch.cuda.is_available())  # Should print True
+    print(torch.cuda.get_device_name(0))  # Shows GPU model
+    ```
+  </Step>
+
+  <Step title="Run with GPU">
+    Specify `--device cuda` when running simulations:
+
+    ```bash
+    python3 quantum_computer.py --device cuda
+    ```
+  </Step>
+</Steps>
+
+## Installation Script
+
+For convenience, use the provided installation script:
+
+```bash install.sh
+#!/bin/bash
+python3 -m venv env
+source env/bin/activate
+pip install -r requirements.txt
+```
+
+Run it with:
+
+```bash
+chmod +x install.sh
+./install.sh
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="ModuleNotFoundError: No module named 'torch'">
+    **Solution**: Make sure you activated your virtual environment and installed all dependencies:
+    ```bash
+    source env/bin/activate
+    pip install torch numpy scipy matplotlib pyscf openfermion openfermionpyscf
+    ```
+  </Accordion>
+
+  <Accordion title="Checkpoint file not found">
+    **Solution**: Verify checkpoint file paths are correct and files exist:
+    ```bash
+    ls -lh hamiltonian.pth checkpoint_phase3_training_epoch_18921_20260224_154739.pth best_dirac.pth
+    ```
+    
+    If missing, download or specify correct paths with `--hamiltonian-checkpoint`, `--schrodinger-checkpoint`, and `--dirac-checkpoint` flags.
+  </Accordion>
+
+  <Accordion title="CUDA out of memory error">
+    **Solution**: Reduce grid size or switch to CPU:
+    ```bash
+    python3 quantum_computer.py --grid-size 8 --device cpu
+    ```
+  </Accordion>
+
+  <Accordion title="Backend parameters mismatch">
+    **Solution**: Ensure `--grid-size`, `--hidden-dim`, and `--expansion-dim` match checkpoint training configuration. Default values are:
+    - Grid size: 16
+    - Hidden dim: 32  
+    - Expansion dim: 64
+  </Accordion>
+</AccordionGroup>
+
+## Verifying Your Installation
+
+Run the molecular simulator test to confirm everything works:
+
+```bash
+python3 molecular_sim.py --molecule H2
+```
+
+Expected output:
+
+```text
+2026-03-01 22:51:27,739 | MolecularSimulator | INFO | Loaded H2 from PySCF: HF=-1.11699900, FCI=-1.13730604
+...
+============================================================
+  VQE Result: H2  [openfermion_jw]
+============================================================
+  VQE energy : -1.13730604 Ha
+  FCI energy : -1.13730604 Ha
+  |VQE-FCI|  : 1.31e-11 Ha
+  Correlation: 100.0%
+============================================================
+```
+
+<Note>
+If you see "100.0%" correlation energy captured and |VQE-FCI| < 10⁻¹⁰, your installation is working correctly!
+</Note>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quick Start Tutorial" icon="rocket" href="/quickstart">
+    Run your first quantum simulation
+  </Card>
+  <Card title="API Reference" icon="code" href="/api/quantum-computer">
+    Explore the complete API documentation
+  </Card>
+</CardGroup>

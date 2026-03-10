@@ -1,0 +1,279 @@
+---
+title: Neural Physics Backends
+description: Three neural network backends for quantum wavefunction evolution
+---
+
+The QC simulator uses three independently trained neural network backends to evolve quantum wavefunctions. Each backend implements the `IPhysicsBackend` interface and provides time evolution for the spatial amplitude representation.
+
+## Backend Architecture
+
+### HamiltonianBackend
+
+The Hamiltonian backend applies a learned spectral operator to single-channel wavefunctions.
+
+**Architecture:**
+- Input: Single-channel field (1, G, G) where G=16 is the grid size
+- Hidden dimension: 32 channels
+- Spectral layers: 2 layers of frequency-domain convolution
+- Output: Evolved field (1, G, G)
+
+**Network Structure:**
+```python
+class HamiltonianBackboneNet(nn.Module):
+    def __init__(self, grid_size: int, hidden_dim: int, num_spectral_layers: int):
+        self.input_proj = nn.Conv2d(1, hidden_dim, kernel_size=1)
+        self.spectral_layers = nn.ModuleList(
+            [SpectralLayer(hidden_dim, grid_size) for _ in range(num_spectral_layers)]
+        )
+        self.output_proj = nn.Conv2d(hidden_dim, 1, kernel_size=1)
+```
+
+**Time Evolution:**
+
+The backend performs first-order Schrödinger evolution:
+
+```
+ψ(t+dt) = ψ(t) - i·dt·H·ψ(t)
+```
+
+For a 2-channel amplitude `[ψ_real, ψ_imag]`:
+
+```python
+def evolve_amplitude(self, amp: torch.Tensor, dt: float) -> torch.Tensor:
+    psi_r = amp[0]  # Real part
+    psi_i = amp[1]  # Imaginary part
+    h_r = self._apply_h(psi_r)
+    h_i = self._apply_h(psi_i)
+    new_r = psi_r + dt * h_i
+    new_i = psi_i - dt * h_r
+    return normalize([new_r, new_i])
+```
+
+**Checkpoint:** `weights/latest.pth`
+
+<Info>
+The Hamiltonian backend falls back to analytical Laplacian evolution if the checkpoint is unavailable.
+</Info>
+
+### SchrodingerBackend
+
+The Schrödinger backend operates on 2-channel `[real, imag]` wavefunctions using an expanded spectral network.
+
+**Architecture:**
+- Input: 2-channel wavefunction (2, G, G)
+- Hidden dimension: 32 channels
+- Expansion dimension: 64 channels for deeper representation
+- Spectral layers: 2 frequency-domain convolution layers
+- Output: Evolved 2-channel wavefunction (2, G, G)
+
+**Network Structure:**
+```python
+class SchrodingerSpectralNet(nn.Module):
+    def __init__(self, grid_size: int, hidden_dim: int, 
+                 expansion_dim: int, num_spectral_layers: int):
+        self.input_proj = nn.Conv2d(2, hidden_dim, kernel_size=1)
+        self.expansion_proj = nn.Conv2d(hidden_dim, expansion_dim, kernel_size=1)
+        self.spectral_layers = nn.ModuleList(
+            [SpectralLayer(expansion_dim, grid_size) 
+             for _ in range(num_spectral_layers)]
+        )
+        self.contraction_proj = nn.Conv2d(expansion_dim, hidden_dim, kernel_size=1)
+        self.output_proj = nn.Conv2d(hidden_dim, 2, kernel_size=1)
+```
+
+**Time Evolution:**
+
+The network directly learns the evolution map:
+
+```python
+def evolve_amplitude(self, amp: torch.Tensor, dt: float) -> torch.Tensor:
+    if self.net is None:
+        return self.hamiltonian.evolve_amplitude(amp, dt)
+    with torch.no_grad():
+        out = self.net(amp.unsqueeze(0)).squeeze(0)
+    return normalize(out)
+```
+
+**Checkpoint:** `weights/schrodinger_crystal_final.pth`
+
+<Note>
+If the Schrödinger checkpoint is missing, the backend automatically falls back to the HamiltonianBackend for evolution.
+</Note>
+
+### DiracBackend
+
+The Dirac backend operates on 4-component relativistic spinors, expanding each amplitude into particle/antiparticle components.
+
+**Architecture:**
+- Input: 8-channel spinor [4 components × (real, imag)] → (8, G, G)
+- Hidden dimension: 32 channels
+- Expansion dimension: 64 channels
+- Spectral layers: 2 frequency-domain layers
+- Output: Evolved 8-channel spinor (8, G, G)
+
+**Network Structure:**
+```python
+class DiracSpectralNet(nn.Module):
+    def __init__(self, grid_size: int, hidden_dim: int,
+                 expansion_dim: int, num_spectral_layers: int):
+        self.input_proj = nn.Conv2d(8, hidden_dim, kernel_size=1)
+        self.expansion_proj = nn.Conv2d(hidden_dim, expansion_dim, kernel_size=1)
+        self.spectral_layers = nn.ModuleList(
+            [SpectralLayer(expansion_dim, grid_size) 
+             for _ in range(num_spectral_layers)]
+        )
+        self.contraction_proj = nn.Conv2d(expansion_dim, hidden_dim, kernel_size=1)
+        self.output_proj = nn.Conv2d(hidden_dim, 8, kernel_size=1)
+```
+
+**Spinor Representation:**
+
+The Dirac backend uses gamma matrices in the Dirac representation:
+
+```python
+class GammaMatrices:
+    # Standard Dirac representation
+    gamma0 = [[1,0,0,0], [0,1,0,0], [0,0,-1,0], [0,0,0,-1]]
+    gamma1 = [[0,0,0,1], [0,0,1,0], [0,-1,0,0], [-1,0,0,0]]
+    gamma2 = [[0,0,0,-i], [0,0,i,0], [0,i,0,0], [-i,0,0,0]]
+    gamma3 = [[0,0,1,0], [0,0,0,-1], [-1,0,0,0], [0,1,0,0]]
+```
+
+Each 2-channel amplitude is packed into a 4-component spinor:
+
+```python
+def _pack(self, amp: torch.Tensor) -> torch.Tensor:
+    psi_c = torch.complex(amp[0], amp[1])
+    s = sqrt(0.5)
+    spinor = torch.zeros(4, G, G, dtype=torch.complex64)
+    spinor[0] = psi_c * s
+    spinor[1] = psi_c * s
+    spinor[2] = psi_c.conj() * s
+    spinor[3] = psi_c.conj() * s
+    return spinor
+```
+
+**Time Evolution:**
+
+The Dirac equation evolution:
+
+```
+iℏ ∂ψ/∂t = (c·α·p + β·m·c²)·ψ
+```
+
+If the network is unavailable, analytical Dirac evolution is used:
+
+```python
+def _analytical_dirac(self, spinor: torch.Tensor) -> torch.Tensor:
+    result = torch.zeros_like(spinor)
+    for comp in range(4):
+        fft = torch.fft.fft2(spinor[comp])
+        px = torch.fft.ifft2(fft * self.kx_grid)
+        py = torch.fft.ifft2(fft * self.ky_grid)
+        for row in range(4):
+            result[row] += (
+                c * self.alpha_x[row, comp] * px +
+                c * self.alpha_y[row, comp] * py +
+                m * c**2 * self.beta[row, comp] * spinor[comp]
+            )
+    return result
+```
+
+**Checkpoint:** `weights/dirac_phase5_latest.pth`
+
+<Warning>
+The DiracBackend requires mass and speed of light parameters (dirac_mass=1.0, dirac_c=1.0) that must match the training configuration.
+</Warning>
+
+## Spectral Convolution Layer
+
+All three backends share the same spectral convolution architecture:
+
+```python
+class SpectralLayer(nn.Module):
+    def __init__(self, channels: int, grid_size: int):
+        self.kernel_real = nn.Parameter(
+            torch.randn(channels, channels, grid_size//2+1, grid_size) * 0.1
+        )
+        self.kernel_imag = nn.Parameter(
+            torch.randn(channels, channels, grid_size//2+1, grid_size) * 0.1
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x_fft = torch.fft.rfft2(x)
+        # Complex multiplication in frequency domain
+        real_part = x_fft.real * kr - x_fft.imag * ki
+        imag_part = x_fft.real * ki + x_fft.imag * kr
+        return torch.fft.irfft2(torch.complex(real_part, imag_part), 
+                                s=(grid_size, grid_size))
+```
+
+Spectral convolution learns complex kernels in the Fourier domain, enabling efficient long-range interactions on the spatial grid.
+
+## Configuration
+
+Backend parameters are configured via `SimulatorConfig`:
+
+```python
+@dataclass
+class SimulatorConfig:
+    grid_size: int = 16
+    hidden_dim: int = 32
+    expansion_dim: int = 64
+    num_spectral_layers: int = 2
+    
+    dt: float = 0.01
+    normalization_eps: float = 1e-8
+    
+    hamiltonian_checkpoint: str = "weights/latest.pth"
+    schrodinger_checkpoint: str = "weights/schrodinger_crystal_final.pth"
+    dirac_checkpoint: str = "weights/dirac_phase5_latest.pth"
+    
+    device: str = "cuda" if torch.cuda.is_available() else "cpu"
+```
+
+<Warning>
+The architecture parameters (grid_size, hidden_dim, expansion_dim, num_spectral_layers) **must match** the values used during checkpoint training. Mismatched parameters will cause checkpoint loading to fail.
+</Warning>
+
+## Usage Example
+
+```python
+from quantum_computer import SimulatorConfig, QuantumComputer
+
+config = SimulatorConfig(
+    grid_size=16,
+    hidden_dim=32,
+    expansion_dim=64,
+    hamiltonian_checkpoint="weights/latest.pth",
+    schrodinger_checkpoint="weights/schrodinger_crystal_final.pth",
+    dirac_checkpoint="weights/dirac_phase5_latest.pth",
+)
+
+qc = QuantumComputer(config)
+
+# Run a circuit with the Schrödinger backend
+circuit = QuantumCircuit(2)
+circuit.h(0).cnot(0, 1)
+result = qc.run(circuit, backend="schrodinger")
+print(result)  # Bell state: P(|00>)=0.5, P(|11>)=0.5
+```
+
+## Backend Comparison
+
+| Backend | Input Channels | Output Channels | Expansion | Use Case |
+|---------|---------------|-----------------|-----------|----------|
+| **Hamiltonian** | 1 (single field) | 1 | None | Basic operator application |
+| **Schrödinger** | 2 (real, imag) | 2 | 32→64→32 | Standard quantum circuits |
+| **Dirac** | 8 (4 spinor × 2) | 8 | 32→64→32 | Relativistic effects |
+
+## Constraint Preservation
+
+All three backends preserve quantum mechanical constraints without explicit enforcement:
+
+- **Norm preservation:** `Sum_k |α_k|² = 1` maintained to machine precision
+- **Phase coherence:** Relative phases preserved across gate operations
+- **Unitarity:** Entropy remains constant under unitary gates
+- **Test suite:** 22/22 algebraic identities pass (HZH=X, HXH=Z, XX=I, etc.)
+
+See [Constraint Preservation](/concepts/constraint-preservation) for detailed test results.

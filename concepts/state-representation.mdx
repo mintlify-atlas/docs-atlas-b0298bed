@@ -1,0 +1,338 @@
+---
+title: State Representation
+description: JointHilbertState class and the (2^n, 2, G, G) amplitude encoding
+---
+
+The QC simulator represents quantum states in the full joint Hilbert space C^(2^n), where each amplitude is encoded as a 2D spatial wavefunction on a (G×G) grid.
+
+## The Joint Hilbert Space
+
+For n qubits, the quantum state lives in a 2^n-dimensional complex vector space. The simulator stores this as:
+
+```python
+amplitudes: torch.Tensor  # Shape: (2^n, 2, G, G)
+```
+
+### Tensor Structure
+
+```
+Dimension 0: Computational basis index k ∈ {0, 1, ..., 2^n - 1}
+             Bit j of k represents the state of qubit j (MSB = qubit 0)
+
+Dimension 1: Complex channel (0 = real, 1 = imaginary)
+
+Dimension 2: Spatial x coordinate (G grid points, typically G=16)
+
+Dimension 3: Spatial y coordinate (G grid points)
+```
+
+**Example for n=2 (2 qubits):**
+
+```
+amplitudes[0] → amplitude for |00⟩, shape (2, 16, 16)
+amplitudes[1] → amplitude for |01⟩, shape (2, 16, 16)
+amplitudes[2] → amplitude for |10⟩, shape (2, 16, 16)
+amplitudes[3] → amplitude for |11⟩, shape (2, 16, 16)
+
+Each amplitude α_k is a complex spatial field:
+α_k(x, y) = amplitudes[k, 0, x, y] + i·amplitudes[k, 1, x, y]
+```
+
+## JointHilbertState Class
+
+The `JointHilbertState` class encapsulates the joint quantum state:
+
+```python
+class JointHilbertState:
+    def __init__(self, amplitudes: torch.Tensor, n_qubits: int) -> None:
+        expected_dim0 = 2 ** n_qubits
+        if amplitudes.shape[0] != expected_dim0:
+            raise ValueError(
+                f"amplitudes.shape[0]={amplitudes.shape[0]} but 2^n_qubits={expected_dim0}"
+            )
+        self.amplitudes = amplitudes
+        self.n_qubits = n_qubits
+        self.dim = expected_dim0
+        self.device = amplitudes.device
+        self.G = amplitudes.shape[-1]
+```
+
+### Key Properties
+
+```python
+state.n_qubits   # Number of qubits
+state.dim        # 2^n (Hilbert space dimension)
+state.G          # Grid size (typically 16)
+state.device     # torch device ("cpu" or "cuda")
+state.amplitudes # The (2^n, 2, G, G) tensor
+```
+
+## Born Probability Calculation
+
+The probability of measuring computational basis state `|k⟩` is computed by integrating the squared modulus over the spatial grid:
+
+```python
+def probabilities(self) -> torch.Tensor:
+    """Return (2^n,) tensor of Born probabilities P(k) for each basis state."""
+    probs = (self.amplitudes[:, 0] ** 2 + self.amplitudes[:, 1] ** 2).sum(dim=(-2, -1))
+    return probs / (probs.sum() + 1e-12)
+```
+
+**Mathematical form:**
+
+```
+P(k) = ∫∫ |α_k(x,y)|² dx dy
+     = Σ_{x,y} (α_k_real² + α_k_imag²)
+```
+
+Normalized so that `Σ_k P(k) = 1`.
+
+### Example: Bell State
+
+For the Bell state `(|00⟩ + |11⟩)/√2`:
+
+```python
+probs = state.probabilities()
+print(probs)
+# Output: tensor([0.5000, 0.0000, 0.0000, 0.5000])
+# Interpretation: P(|00⟩) = 0.5, P(|11⟩) = 0.5
+```
+
+## Normalization
+
+The state is kept normalized so that `Σ_k P(k) = 1`:
+
+```python
+def normalize_(self) -> None:
+    """In-place normalization: sum_k P(k) = 1."""
+    probs = (self.amplitudes[:, 0] ** 2 + self.amplitudes[:, 1] ** 2).sum(dim=(-2, -1))
+    total = probs.sum() + 1e-12
+    self.amplitudes = self.amplitudes / (total ** 0.5)
+```
+
+Normalization is applied after:
+- State initialization
+- Gate application
+- Time evolution
+
+## Marginal Probabilities
+
+### Single-Qubit Marginal
+
+The probability that qubit j is in state `|1⟩` is computed by summing over all basis states where bit j is set:
+
+```python
+def marginal_probability_one(self, qubit: int) -> float:
+    """P(qubit_j = |1⟩). Bit ordering: qubit 0 is MSB of k."""
+    probs = self.probabilities()
+    bit_pos = self.n_qubits - 1 - qubit
+    mask = torch.zeros(self.dim, dtype=torch.bool, device=self.device)
+    for k in range(self.dim):
+        if (k >> bit_pos) & 1:
+            mask[k] = True
+    return float(probs[mask].sum().clamp(0.0, 1.0))
+```
+
+**Example:** For a Bell state on qubits 0 and 1:
+- `P(qubit 0 = |1⟩) = P(|10⟩) + P(|11⟩) = 0 + 0.5 = 0.5`
+- `P(qubit 1 = |1⟩) = P(|01⟩) + P(|11⟩) = 0 + 0.5 = 0.5`
+
+## Bloch Vector (Reduced Density Matrix)
+
+For single qubits, the Bloch vector is computed via partial trace:
+
+```python
+def bloch_vector(self, qubit: int) -> Tuple[float, float, float]:
+    """
+    Compute the reduced Bloch vector for qubit j by partial trace.
+    
+    ρ_j[0,0] = P(qubit=0), ρ_j[1,1] = P(qubit=1)
+    ρ_j[0,1] = Σ_{pairs} α_{k0}^* α_{k1} (off-diagonal coherence)
+    bx = 2 Re(ρ_j[0,1]), by = -2 Im(ρ_j[0,1]), bz = P(0) - P(1)
+    """
+    probs = self.probabilities()
+    bit_pos = self.n_qubits - 1 - qubit
+    p0 = sum(probs[k] for k in range(self.dim) if not ((k >> bit_pos) & 1))
+    p1 = 1.0 - p0
+    bz = p0 - p1
+    
+    # Off-diagonal coherence terms
+    re_offdiag = 0.0
+    im_offdiag = 0.0
+    for k0 in range(self.dim):
+        if (k0 >> bit_pos) & 1:
+            continue
+        k1 = k0 | (1 << bit_pos)
+        a0r = self.amplitudes[k0, 0]
+        a0i = self.amplitudes[k0, 1]
+        a1r = self.amplitudes[k1, 0]
+        a1i = self.amplitudes[k1, 1]
+        # α_{k0}^* α_{k1}
+        re_offdiag += (a0r * a1r + a0i * a1i).sum()
+        im_offdiag += (a0r * a1i - a0i * a1r).sum()
+    
+    total_weight = (self.amplitudes[:, 0] ** 2 + self.amplitudes[:, 1] ** 2).sum() + 1e-12
+    bx = 2.0 * re_offdiag / total_weight
+    by = -2.0 * im_offdiag / total_weight
+    
+    # Normalize if magnitude > 1
+    mag = sqrt(bx**2 + by**2 + bz**2) + 1e-12
+    if mag > 1.0:
+        bx, by, bz = bx/mag, by/mag, bz/mag
+    return bx, by, bz
+```
+
+**Interpretation:**
+- `bz = 1`: qubit is in `|0⟩`
+- `bz = -1`: qubit is in `|1⟩`
+- `bx = 1, by = 0, bz = 0`: qubit is in `|+⟩ = (|0⟩ + |1⟩)/√2`
+- `bx = 0, by = 0, bz = 0`: maximally mixed state (entangled)
+
+## Most Probable State
+
+```python
+def most_probable_basis_state(self) -> int:
+    """Return the index k with the highest probability."""
+    return int(self.probabilities().argmax().item())
+```
+
+**Usage:**
+```python
+k = state.most_probable_basis_state()
+bitstring = format(k, f"0{state.n_qubits}b")
+print(f"Most probable: |{bitstring}⟩")
+# Example output: "Most probable: |101⟩"
+```
+
+## State Cloning
+
+```python
+def clone(self) -> "JointHilbertState":
+    """Return a deep copy."""
+    return JointHilbertState(self.amplitudes.clone(), self.n_qubits)
+```
+
+<Warning>
+Cloning is allowed because the simulator does not enforce the no-cloning theorem. This is used for debugging and circuit snapshots.
+</Warning>
+
+## Amplitude Initialization
+
+Amplitudes are initialized using eigenstates of mixed potential landscapes:
+
+```python
+def _build_basis_amplitude(config: SimulatorConfig, basis_idx: int) -> torch.Tensor:
+    """
+    Build the (2, G, G) spatial wavefunction for amplitude at basis index basis_idx.
+    Each computational basis state gets its own spatial eigenstate profile.
+    The excitation level is proportional to the popcount of the basis index.
+    """
+    pot_gen = PotentialGenerator(config)
+    popcount = bin(basis_idx).count("1")  # Number of |1⟩ bits
+    potential = pot_gen.mixed(seed=basis_idx * 17 + 3)
+    return _solve_eigenstate(config, potential, n=popcount)
+```
+
+The potential generator creates mixed landscapes from:
+- Harmonic oscillator: `V ∝ r²`
+- Double well: `V ∝ (x² - 1)²`
+- Coulomb: `V ∝ -1/r`
+- Periodic lattice: `V ∝ cos(2x) + cos(2y)`
+
+**Result:** Each computational basis state `|k⟩` has a unique spatial signature based on its bit pattern.
+
+## Superposition and Entanglement
+
+### Superposition
+
+**Single qubit in superposition:**
+```
+|ψ⟩ = (|0⟩ + |1⟩)/√2
+
+Representation:
+amplitudes[0] → non-zero spatial field
+amplitudes[1] → non-zero spatial field
+P(0) = P(1) = 0.5
+```
+
+### Entanglement
+
+**Bell state:**
+```
+|Φ⁺⟩ = (|00⟩ + |11⟩)/√2
+
+Representation:
+amplitudes[0] → non-zero (for |00⟩)
+amplitudes[1] → zero
+amplitudes[2] → zero
+amplitudes[3] → non-zero (for |11⟩)
+
+This CANNOT be factorized as |ψ_0⟩ ⊗ |ψ_1⟩
+```
+
+**Evidence of entanglement:**
+- Bloch vectors for individual qubits: `(0, 0, 0)` (maximally mixed)
+- Shannon entropy: 1.0 bit (maximal for 2-state distribution)
+- Off-diagonal coherence between `|00⟩` and `|11⟩` is non-zero
+
+## Why This Representation?
+
+The (2^n, 2, G, G) representation enables:
+
+1. **Exact entanglement:** Amplitudes do not factorize across qubits
+2. **Spatial physics:** Each amplitude evolves under continuous Hamiltonian dynamics
+3. **Neural backend training:** 2D spatial fields are natural inputs for convolutional networks
+4. **Coherent multi-qubit gates:** Exact permutation and mixing of amplitude pairs
+
+<Info>
+This representation differs from tensor network methods (MPS, PEPS) which compress the exponential dimension. Here, we explicitly store all 2^n amplitudes, trading memory for exact dynamics.
+</Info>
+
+## State Factory
+
+The `JointStateFactory` provides convenience methods for creating initial states:
+
+```python
+class JointStateFactory:
+    def all_zeros(self, n_qubits: int) -> JointHilbertState:
+        """Initialize register in |00...0⟩."""
+        amps = torch.zeros(2**n_qubits, 2, self.config.grid_size, 
+                          self.config.grid_size, device=self.config.device)
+        amps[0] = _build_basis_amplitude(self.config, 0)
+        state = JointHilbertState(amps, n_qubits)
+        state.normalize_()
+        return state
+    
+    def basis_state(self, n_qubits: int, k: int) -> JointHilbertState:
+        """Initialize register in computational basis state |k⟩."""
+        amps = torch.zeros(2**n_qubits, 2, self.config.grid_size,
+                          self.config.grid_size, device=self.config.device)
+        amps[k] = _build_basis_amplitude(self.config, k)
+        state = JointHilbertState(amps, n_qubits)
+        state.normalize_()
+        return state
+    
+    def from_bitstring(self, bitstring: str) -> JointHilbertState:
+        """Initialize in the basis state given by binary string."""
+        return self.basis_state(len(bitstring), int(bitstring, 2))
+```
+
+**Usage:**
+```python
+factory = JointStateFactory(config)
+
+# Create |000⟩
+state = factory.all_zeros(3)
+
+# Create |101⟩
+state = factory.basis_state(3, 5)  # 5 = 0b101
+
+# From bitstring
+state = factory.from_bitstring("101")
+```
+
+## See Also
+
+- [Neural Backends](/concepts/neural-backends) - How amplitudes are evolved
+- [Quantum Circuits](/concepts/quantum-circuits) - How gates transform states
+- [Constraint Preservation](/concepts/constraint-preservation) - Proof that this representation works

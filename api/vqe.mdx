@@ -1,0 +1,384 @@
+---
+title: "VQE Implementation"
+description: "Variational Quantum Eigensolver functions and UCCSD ansatz for molecular simulation"
+---
+
+## Overview
+
+VQE (Variational Quantum Eigensolver) implementation for finding molecular ground state energies using the UCCSD (Unitary Coupled Cluster Singles and Doubles) ansatz.
+
+## Core Functions
+
+### uccsd()
+
+```python
+def uccsd(
+    state: JointHilbertState,
+    thetas: np.ndarray,
+    singles: List[Tuple[int, int]],
+    doubles: List[Tuple[int, int, int, int]],
+    backend: IPhysicsBackend,
+    runner: Callable
+) -> JointHilbertState
+```
+
+Apply UCCSD ansatz to quantum state.
+
+**Parameters:**
+- `state`: Initial quantum state (typically Hartree-Fock)
+- `thetas`: Variational parameters array
+- `singles`: Single excitation indices `[(occ, virt), ...]`
+- `doubles`: Double excitation indices `[(o1, o2, v1, v2), ...]`
+- `backend`: Physics backend for time evolution
+- `runner`: Circuit execution function
+
+**Returns:** Evolved quantum state after UCCSD rotations
+
+**Behavior:**
+- **θ = 0:** Returns identity (no change to state)
+- **Singles:** CNOT ladder + RY(2θ) rotation on virtual orbital
+- **Doubles:** Givens rotation in 2-electron excitation subspace
+- **Particle number:** Always conserved
+
+### prepare_hf()
+
+```python
+def prepare_hf(
+    mol: MoleculeData,
+    factory: JointStateFactory,
+    backend: IPhysicsBackend
+) -> JointHilbertState
+```
+
+Prepare Hartree-Fock reference state.
+
+**Parameters:**
+- `mol`: Molecule data with `n_electrons` and `n_qubits`
+- `factory`: State factory for initialization
+- `backend`: Physics backend
+
+**Returns:** State with first `n_electrons` qubits in |1⟩, rest in |0⟩
+
+**Example:**
+```python
+# H2: 2 electrons, 4 qubits → |1100⟩
+mol = MOLECULES["H2"]
+hf_state = prepare_hf(mol, qc._factory, backend)
+# hf_state corresponds to |1100⟩ in computational basis
+```
+
+## UCCSD Ansatz Details
+
+### Single Excitations
+
+For each single excitation (occupied orbital `o` → virtual orbital `v`):
+
+1. Apply CNOT ladder from `o` to `v-1`
+2. Apply RY gate: `RY(v, 2θ)`
+3. Reverse CNOT ladder from `v-1` to `o`
+
+**Circuit:**
+```python
+for k in range(o, v):
+    CNOT(k, k+1)
+RY(v, 2*theta)
+for k in range(v-1, o-1, -1):
+    CNOT(k, k+1)
+```
+
+### Double Excitations
+
+For each double excitation (occupied orbitals `o1, o2` → virtual orbitals `v1, v2`):
+
+1. Identify occupied and virtual qubits from current state
+2. Select pivot qubit (first virtual)
+3. Apply CNOT chain to entangle
+4. Apply RY rotation: `RY(pivot, 2θ)`
+5. Reverse CNOT chain
+
+**Dynamic Subspace:**
+The excited state index is determined from the current state's highest probability amplitude, making the ansatz robust to basis ordering conventions.
+
+### Parameter Mapping
+
+Parameters are indexed sequentially:
+- Indices `[0 : n_singles)`: Single excitation amplitudes
+- Indices `[n_singles : n_singles + n_doubles)`: Double excitation amplitudes
+
+## Excitation Generation
+
+### _sd_indices()
+
+```python
+def _sd_indices(
+    n_e: int,
+    n_q: int
+) -> Tuple[List[Tuple[int, int]], List[Tuple[int, int, int, int]]]
+```
+
+Generate all possible single and double excitations.
+
+**Parameters:**
+- `n_e`: Number of electrons (occupied orbitals)
+- `n_q`: Number of qubits (total spin-orbitals)
+
+**Returns:**
+- `singles`: List of (occupied, virtual) pairs
+- `doubles`: List of (occ1, occ2, virt1, virt2) quadruplets
+
+**Example:**
+```python
+# H2: 2 electrons, 4 qubits
+singles, doubles = _sd_indices(2, 4)
+# singles = [(0, 2), (0, 3), (1, 2), (1, 3)]
+# doubles = [(0, 1, 2, 3)]
+# Total parameters: 5
+```
+
+## Energy Evaluation
+
+### ExactJWEnergy Class
+
+Exact energy evaluator using Jordan-Wigner Hamiltonian.
+
+**Constructor:**
+```python
+ExactJWEnergy(mol: MoleculeData, n_qubits: int)
+```
+
+**Methods:**
+
+#### __call__()
+
+```python
+def __call__(amps: torch.Tensor) -> float
+```
+
+Compute energy expectation value ⟨ψ|H|ψ⟩.
+
+**Parameters:**
+- `amps`: State amplitudes `(2^n, 2, G, G)` or `(2^n, 2)`
+
+**Returns:** Energy in Hartree
+
+**Implementation:**
+1. Normalize state: `|ψ⟩ → |ψ⟩/||ψ||`
+2. For each Pauli term `(c, P)` in Hamiltonian:
+   - Apply Pauli operator: `|φ⟩ = P|ψ⟩`
+   - Accumulate: `E += c * ⟨ψ|φ⟩`
+3. Add nuclear repulsion: `E += E_nuc`
+
+#### _apply()
+
+```python
+def _apply(
+    amps: torch.Tensor,
+    pauli: List[Tuple[int, str]]
+) -> torch.Tensor
+```
+
+Apply Pauli string to state.
+
+**Parameters:**
+- `amps`: State amplitudes `(2^n, 2)`
+- `pauli`: List of `(qubit_index, pauli_op)` where `pauli_op ∈ {"X", "Y", "Z"}`
+
+**Returns:** Transformed state P|ψ⟩
+
+**Pauli Actions:**
+- **X:** Bit flip + identity phase
+- **Y:** Bit flip + i*phase (depends on bit value)
+- **Z:** Phase flip (no bit flip)
+
+## Optimization Workflow
+
+### VQESolver.run() Implementation
+
+1. **Initialization**
+   ```python
+   hf_state = prepare_hf(mol, factory, backend)
+   singles, doubles = _sd_indices(mol.n_electrons, mol.n_qubits)
+   n_params = len(singles) + len(doubles)
+   ```
+
+2. **Identity Check**
+   ```python
+   state_zero = uccsd(hf_state.clone(), np.zeros(n_params), singles, doubles, backend, runner)
+   e_zero = exact_eval(state_zero.amplitudes)
+   assert abs(e_zero - mol.hf_energy) < 1e-4, "Identity check failed"
+   ```
+
+3. **Parameter Scan** (initial guess)
+   ```python
+   best_td = 0.0
+   min_e = float('inf')
+   for td in np.linspace(-0.5, 0.5, 11):
+       theta = np.zeros(n_params)
+       theta[len(singles)] = td  # First double amplitude
+       state = uccsd(hf_state.clone(), theta, singles, doubles, backend, runner)
+       e = exact_eval(state.amplitudes)
+       if e < min_e:
+           min_e, best_td = e, td
+   theta0[len(singles)] = best_td
+   ```
+
+4. **Optimization**
+   ```python
+   def cost(thetas):
+       state = uccsd(hf_state.clone(), thetas, singles, doubles, backend, runner)
+       return exact_eval(state.amplitudes)
+   
+   result = scipy.optimize.minimize(
+       cost,
+       theta0,
+       method="L-BFGS-B",
+       options={"maxiter": max_iter, "ftol": tol}
+   )
+   ```
+
+5. **Final Evaluation**
+   ```python
+   final_state = uccsd(hf_state, result.x, singles, doubles, backend, runner)
+   vqe_energy = exact_eval(final_state.amplitudes)
+   correlation = (mol.hf_energy - vqe_energy) / (mol.hf_energy - mol.fci_energy)
+   ```
+
+## Optimization Parameters
+
+### L-BFGS-B Settings
+
+- **method:** `"L-BFGS-B"` (Limited-memory BFGS with box constraints)
+- **maxiter:** `200` (default, configurable)
+- **ftol:** `1e-8` (function tolerance)
+- **gtol:** `1e-7` (gradient tolerance)
+- **eps:** `1e-5` (finite difference step for gradient)
+
+### Convergence Criteria
+
+- **Energy change:** |E(n+1) - E(n)| < `ftol`
+- **Gradient norm:** ||∇E|| < `gtol`
+- **Max iterations:** Reached `maxiter`
+
+## VQEResult Output
+
+### Attributes
+
+```python
+@dataclass
+class VQEResult:
+    molecule: str              # "H2"
+    backend: str               # "hamiltonian"
+    n_qubits: int              # 4
+    n_parameters: int          # 5 (4 singles + 1 double)
+    vqe_energy: float          # -1.13728123 Ha
+    hf_energy: float           # -1.11675928 Ha
+    fci_energy: float          # -1.13728383 Ha
+    correlation_energy_captured: float  # 0.999 (99.9%)
+    optimal_thetas: np.ndarray          # [θ1, θ2, ..., θ5]
+    n_iterations: int                   # 42
+    converged: bool                     # True
+    energy_error: float                 # 2.60e-06 Ha
+```
+
+### String Representation
+
+```python
+print(result)
+```
+
+Output:
+```
+============================================================
+  VQE Result: H2  [hamiltonian]
+============================================================
+  Qubits: 4
+  Parameters: 5
+────────────────────────────────────────────────────────────
+  HF energy  : -1.11675928 Ha
+  VQE energy : -1.13728123 Ha
+  FCI energy : -1.13728383 Ha
+────────────────────────────────────────────────────────────
+  |VQE-FCI|  : 2.60e-06 Ha
+  Correlation: 99.9%
+============================================================
+```
+
+## Example: Complete VQE Run
+
+```python
+from quantum_computer import QuantumComputer, SimulatorConfig
+from molecular_sim import VQESolver, MOLECULES
+import numpy as np
+
+# Configure
+config = SimulatorConfig(
+    grid_size=16,
+    hidden_dim=32,
+    hamiltonian_checkpoint="hamiltonian.pth",
+    device="cpu",
+    random_seed=42
+)
+
+# Initialize
+qc = QuantumComputer(config)
+solver = VQESolver(qc, config)
+mol = MOLECULES["H2"]
+
+# Run VQE
+result = solver.run(
+    mol,
+    backend="hamiltonian",
+    max_iter=100,
+    tol=1e-8
+)
+
+# Access results
+print(f"VQE Energy: {result.vqe_energy:.8f} Ha")
+print(f"Error: {result.energy_error:.2e} Ha")
+print(f"Correlation: {result.correlation_energy_captured*100:.1f}%")
+print(f"Converged: {result.converged}")
+print(f"Optimal parameters: {result.optimal_thetas}")
+```
+
+## Performance Characteristics
+
+### Scaling
+
+| Molecule | Electrons | Qubits | Parameters | Iterations | Time (CPU) |
+|----------|-----------|--------|------------|------------|------------|
+| H2       | 2         | 4      | 5          | 30-50      | 5-10 min   |
+| LiH      | 4         | 12     | 44         | 100-200    | 30-60 min  |
+| H2O      | 10        | 14     | 84         | 200-400    | 2-4 hours  |
+
+### Accuracy
+
+- **Chemical accuracy:** < 1.6 mHa (1 kcal/mol)
+- **Typical error:** 1e-5 to 1e-6 Ha
+- **Correlation captured:** > 99%
+
+## Troubleshooting
+
+### Identity Check Fails
+
+```
+RuntimeError: Identity check failed: E=-1.1150 != -1.1168
+```
+
+**Solution:** Verify Hamiltonian construction and HF state preparation.
+
+### Slow Convergence
+
+**Symptoms:** > 200 iterations without convergence
+
+**Solutions:**
+- Reduce `ftol` to `1e-6`
+- Use better initial guess from parameter scan
+- Check for numerical instabilities in state evolution
+
+### Energy Below FCI
+
+**Symptoms:** `vqe_energy < fci_energy`
+
+**Cause:** Numerical error in Hamiltonian or state norm
+
+**Solution:** Increase normalization precision, verify Hamiltonian terms

@@ -1,0 +1,247 @@
+---
+title: 'Extended Capabilities'
+description: 'Stark effect, QED corrections, and polyatomic molecules demonstrating structural preservation beyond standard quantum algorithms'
+---
+
+## Overview
+
+This chapter documents what happened when the neural backends were tested on calculations requiring more than gate application: external field coupling (Stark effect), quantum electrodynamics corrections, and polyatomic molecules.
+
+From README.md:35:
+
+> The backends do not merely preserve constraints. They preserve structure.
+
+## Stark Effect: Electric Polarizability
+
+### Calculation Setup
+
+The Stark effect calculation coupled an external electric field to the molecular dipole operator:
+
+```
+H(F) = H₀ - F·μ
+```
+
+where F is the electric field strength and μ is the dipole moment operator.
+
+<Accordion title="Dipole Operator Construction (README.md:39-42)">
+
+The dipole operator matrix in the molecular orbital basis showed immediate structure:
+
+- **Off-diagonal elements**: -0.9278
+- **Diagonal elements**: essentially zero
+- **Structure**: Transition dipole between bonding and antibonding orbitals
+- **Pauli terms**: 4 terms with identity contribution exactly zero
+
+From RESULTS.md:577-580:
+```
+Dipole MO matrix:
+[[-3.28091797e-10 -9.27833470e-01]
+ [-9.27833470e-01 -3.28091741e-10]]
+Dipole: 4 Pauli terms, identity=0.000000
+```
+
+</Accordion>
+
+### Zero-Field Reference
+
+<Accordion title="Zero-Field VQE Results (README.md:43-46)">
+
+| Property | Value |
+|----------|-------|
+| Energy | -1.1373060358 Ha |
+| Optimized singles parameters | ~0 |
+| Optimized double parameter | -0.111768514 |
+| Gap from FCI | 2.89e-15 Ha |
+
+**This is not approximate. It is exact.**
+
+</Accordion>
+
+### Field Response and Symmetry
+
+The energy response to the external field showed perfect symmetry:
+
+| Field (a.u.) | Energy (Ha) | ΔE (Ha) | |E(+F) - E(-F)| |
+|--------------|-------------|---------|----------------|
+| -0.020 | -1.1378560417 | -0.0005500059 | 1.11e-15 |
+| -0.015 | -1.1376154189 | -0.0003093832 | 2.36e-12 |
+| -0.010 | -1.1374435409 | -0.0001375052 | 3.11e-15 |
+| -0.005 | -1.1373404123 | -0.0000343765 | 2.22e-16 |
+| 0.000 | -1.1373060358 | 0.0000000000 | - |
+| +0.005 | -1.1373404123 | -0.0000343765 | 2.22e-16 |
+| +0.010 | -1.1374435409 | -0.0001375052 | 3.11e-15 |
+| +0.015 | -1.1376154189 | -0.0003093832 | 2.36e-12 |
+| +0.020 | -1.1378560417 | -0.0005500059 | 1.11e-15 |
+
+From README.md:51:
+
+> These are machine precision zeros. The energy surface is perfectly symmetric.
+
+### Polarizability Result
+
+Fitting the quadratic form E(F) = E(0) - (1/2) × α × F²:
+
+<CardGroup cols={2}>
+  <Card title="VQE Result" icon="flask">
+    **α = 2.750 a₀³**
+  </Card>
+  <Card title="Exact Diagonalization" icon="check">
+    **α = 2.750 a₀³**
+  </Card>
+</CardGroup>
+
+**Error: 0.0%**
+
+From README.md:57:
+
+> The error is zero to the precision I can measure.
+
+### Significance
+
+From README.md:59-62:
+
+> Electric polarizability measures how a molecule responds to an external field. The calculation requires the dipole operator to be correctly constructed from molecular orbitals, the Jordan-Wigner mapping to preserve matrix elements, the VQE optimization to find the correct response wavefunction at each field value, and the energy differences to be computed without systematic bias. Any error in any step propagates to the final answer.
+>
+> The fact that I observe exact agreement with reference calculations tells me the entire pipeline is internally consistent.
+
+## QED Effects
+
+The QED calculations are analytical approximations implemented to test framework extensibility.
+
+### Lamb Shift
+
+<Accordion title="Lamb Shift Calculation (README.md:65-74)">
+
+Calculated for 2s₁/₂ versus 2p₁/₂ splitting in hydrogen using Bethe's non-relativistic formula:
+
+| State | Lamb Shift | Notes |
+|-------|-----------|-------|
+| 2s₁/₂ | 57.47 MHz | Bethe logarithm ≈ 2.984 |
+| 2p₁/₂ | 0.1598 MHz | Bethe logarithm ≈ -0.03 |
+| **Splitting (calculated)** | **57.31 MHz** | Non-relativistic approximation |
+| **Splitting (experimental)** | **1057.84 MHz** | Full quantum electrodynamics |
+
+**Discrepancy**: Factor of ~18
+
+This is expected. Bethe's non-relativistic formula captures only the dominant self-energy contribution. Full calculations require relativistic corrections, vacuum polarization, higher-order QED terms, and nuclear size effects.
+
+From README.md:75:
+
+> What the calculation shows is that the framework can incorporate QED-style corrections in a modular way.
+
+</Accordion>
+
+### Anomalous Magnetic Moment
+
+<Accordion title="Electron g-2 Calculation (README.md:78-95)">
+
+Computed through fifth order in the fine structure constant α = 1/137.035999084:
+
+| Order | Coefficient | Contribution |
+|-------|------------|-------------|
+| 1 (Schwinger) | α/(2π) | 0.001161409733 |
+| 2 | (α/π)² × 0.32848 | 0.000001772305 |
+| 3 | (α/π)³ × 1.18124 | 0.000000014804 |
+| 4 | (α/π)⁴ × (-1.9144) | -0.000000000056 |
+| 5 | (α/π)⁵ × 7.7 | 0.000000000001 |
+| **Total (calculated)** | | **0.001163196787** |
+| **Experimental** | | **0.001159652181** |
+
+**Relative error: 0.3%**
+
+**g-factor**:
+- Calculated: 2.002326393574
+- Experimental: 2.002319304363
+
+From README.md:94:
+
+> For a perturbative expansion truncated at fifth order, this is reasonable. The error would decrease with higher-order terms. The point is that the framework supports the calculation.
+
+</Accordion>
+
+## Polyatomic Molecules
+
+The polyatomic molecule calculations tested whether the pipeline scales beyond H₂.
+
+### H₂O (Water)
+
+<Accordion title="Water Molecule Results (README.md:101-109)">
+
+**Geometry**: O-H bond length 0.9575 Å, H-O-H angle 104.5°
+
+| Property | Value |
+|----------|-------|
+| Electrons | 10 |
+| Orbitals | 7 |
+| Qubits (spin-orbital basis) | 14 |
+| HF Energy | -74.96297761 Ha |
+| FCI Energy | -75.01249437 Ha |
+| Correlation Energy | 0.049517 Ha |
+
+From RESULTS.md:545-561:
+```
+======================================================================
+POLYATOMIC MOLECULE ANALYSIS: H2O
+======================================================================
+
+Molecule: H2O
+Description: H2O: r_OH=0.9575 Å, ∠HOH=104.5°
+
+Geometry:
+  O: (0.0000, 0.0000, 0.0000) Å
+  H: (0.9575, 0.0000, 0.0000) Å
+  H: (-0.2397, 0.9270, 0.0000) Å
+
+Running PySCF for H2O
+  HF Energy: -74.96297761 Ha
+  FCI Energy: -75.01249437 Ha
+
+Correlation Energy: 0.049517 Ha
+```
+
+</Accordion>
+
+### NH₃ and CH₄
+
+<Accordion title="Ammonia and Methane">
+
+**NH₃ (Ammonia)**:
+- Electrons: 10
+- Orbitals: 8
+- Qubits: 16
+- Status: Processed successfully through pipeline
+
+**CH₄ (Methane)**:
+- Electrons: 10
+- Orbitals: 9
+- Qubits: 18
+- Status: Processed successfully through pipeline
+
+From README.md:112:
+
+> The important observation is that nothing broke. The pipeline scales naturally.
+
+</Accordion>
+
+### Scalability
+
+From README.md:109:
+
+> The framework processed this without modification. The same code that handles H2 also handles H2O. The limitation is not in the neural backends but in classical FCI cost.
+
+## Conclusions
+
+From README.md:131-139:
+
+> The polarizability calculation is the most significant. A calculation that couples VQE to an external field and fits a quadratic response should be sensitive to any noise or asymmetry in the underlying simulation. The neural backends are not explicitly constrained to preserve field-response properties. Yet they do.
+>
+> The symmetry |E(+F) - E(-F)| at machine precision tells me something specific. The backends are not introducing spurious field-dependent artifacts. They are not breaking parity. They are not leaking information between positive and negative field directions.
+
+From README.md:143:
+
+> The backends do not merely preserve probabilities and phases. They preserve the mathematical relationships needed for response calculations.
+
+## Related Documentation
+
+- [Polarizability Calculation](/research/polarizability) - Detailed analysis
+- [Results Summary](/research/results) - All experimental results

@@ -1,0 +1,408 @@
+---
+title: 'VQE with UCCSD Ansatz'
+description: 'Variational Quantum Eigensolver implementation details'
+---
+
+# VQE with UCCSD Ansatz
+
+Detailed guide to the Variational Quantum Eigensolver (VQE) implementation using the Unitary Coupled Cluster Singles and Doubles (UCCSD) ansatz.
+
+## Theory Background
+
+### Variational Principle
+
+For any trial state |ψ(θ)⟩:
+
+```
+E(θ) = ⟨ψ(θ)|H|ψ(θ)⟩ ≥ E₀
+```
+
+where E₀ is the ground state energy.
+
+### UCCSD Ansatz
+
+```
+|ψ(θ)⟩ = exp(T̂ - T̂†) |HF⟩
+
+T̂ = T̂₁ + T̂₂
+T̂₁ = Σᵢ,ₐ θᵢᵃ â†ᵢaₐ    (singles)
+T̂₂ = Σᵢ<ⱼ,ₐ<ᵦ θᵢⱼᵃᵇ â†ᵢâ†ⱼaₐaᵦ  (doubles)
+```
+
+## Implementation
+
+### Parameter Counting
+
+From `molecular_sim.py:415-419`:
+
+```python
+def _sd_indices(n_e, n_q):
+    occ = list(range(n_e))
+    vir = list(range(n_e, n_q))
+    singles = [(o, v) for o in occ for v in vir]
+    doubles = [(o1, o2, v1, v2)
+               for i, o1 in enumerate(occ) for o2 in occ[i+1:]
+               for j, v1 in enumerate(vir) for v2 in vir[j+1:]]
+    return singles, doubles
+
+# For H₂: n_e=2, n_q=4
+# Singles: (0,2), (0,3), (1,2), (1,3) = 4
+# Doubles: (0,1,2,3) = 1 pair → 2 parameters
+# Total: 6 parameters
+```
+
+### UCCSD Circuit Construction
+
+<Tabs>
+  <Tab title="Singles Excitations">
+    Implementation from `molecular_sim.py:336-344`:
+    
+    ```python
+    for (o, v) in singles:
+        if ti >= len(thetas): break
+        th = float(thetas[ti]); ti += 1
+        if abs(th) < 1e-12: continue
+        
+        circ = QuantumCircuit(n)
+        
+        # CNOT ladder (Jordan-Wigner string)
+        for k in range(o, v):
+            circ.cnot(k, k + 1)
+        
+        # Rotation
+        circ.ry(v, 2.0 * th)
+        
+        # Inverse CNOT ladder
+        for k in range(v-1, o-1, -1):
+            circ.cnot(k, k + 1)
+        
+        current = runner(circ, backend, current)
+    ```
+    
+    **Key Point**: The CNOT ladder implements the Jordan-Wigner transformation, ensuring particle number conservation.
+  </Tab>
+
+  <Tab title="Doubles Excitations">
+    Implementation from `molecular_sim.py:346-365`:
+    
+    ```python
+    for (o1, o2, v1, v2) in doubles:
+        if ti >= len(thetas): break
+        th = float(thetas[ti]); ti += 1
+        if abs(th) < 1e-12: continue
+        
+        # Determine occupied/virtual qubits from CURRENT state
+        amps = current.amplitudes
+        probs = (amps[:, 0]**2 + amps[:, 1]**2).sum(dim=(-2, -1))
+        hf_idx = int(probs.argmax().item())
+        
+        occ_q = [i for i in range(n) if (hf_idx >> (n-1-i)) & 1]
+        vir_q = [i for i in range(n) if not ((hf_idx >> (n-1-i)) & 1)]
+        
+        if not vir_q: continue
+        
+        # Givens rotation in {|HF⟩, |exc⟩} subspace
+        pivot = vir_q[0]
+        chain = sorted(set(occ_q + vir_q[1:]))
+        
+        circ = QuantumCircuit(n)
+        for c_q in chain:
+            circ.cnot(pivot, c_q)
+        circ.ry(pivot, 2.0 * th)
+        for c_q in reversed(chain):
+            circ.cnot(pivot, c_q)
+        
+        current = runner(circ, backend, current)
+    ```
+    
+    **Key Point**: Robust to JW convention changes by determining occupied/virtual qubits dynamically.
+  </Tab>
+</Tabs>
+
+### Identity Check
+
+Critical validation that theta=0 preserves HF state (molecular_sim.py:421-428):
+
+```python
+st0 = uccsd(hf_state.clone(), np.zeros(n_params), 
+            singles, doubles, be, runner)
+e0 = exact_eval(st0.amplitudes)
+id_ok = abs(e0 - mol.hf_energy) < 1e-4
+
+if not id_ok:
+    raise RuntimeError(
+        f"Identity check failed: E={e0:.6f} != {mol.hf_energy:.6f}"
+    )
+```
+
+## Optimization Strategy
+
+<Steps>
+  <Step title="Parameter initialization">
+    Scan double excitation amplitude for good starting point:
+    
+    ```python
+    # molecular_sim.py:431-444
+    for td in np.linspace(-0.5, 0.5, 11):
+        th = np.zeros(n_params)
+        if n_doubles > 0:
+            th[n_singles] = td
+        
+        st = uccsd(hf_state.clone(), th, singles, doubles, be, runner)
+        e_sc = exact_eval(st.amplitudes)
+        
+        if e_sc < scan_min_e:
+            scan_min_e = e_sc
+            scan_best_td = td
+    
+    # Use best double amplitude as initial guess
+    theta0 = np.zeros(n_params)
+    if n_doubles > 0:
+        theta0[n_singles] = scan_best_td
+    ```
+  </Step>
+
+  <Step title="L-BFGS-B optimization">
+    ```python
+    # molecular_sim.py:449-467
+    best_e, best_thetas, total_evals = float('inf'), None, 0
+    
+    def cost(thetas):
+        nonlocal best_e, best_thetas, total_evals
+        total_evals += 1
+        
+        state = uccsd(hf_state.clone(), thetas, 
+                     singles, doubles, be, runner)
+        e = exact_eval(state.amplitudes)
+        
+        if e < best_e:
+            best_e = e
+            best_thetas = thetas.copy()
+        
+        if total_evals % 20 == 0:
+            print(f"  iter {total_evals:3d}: E={e:.8f} Ha  "
+                  f"Δ_FCI={abs(e - mol.fci_energy):.2e}")
+        
+        return float(e)
+    
+    res = minimize(
+        cost, theta0, 
+        method="L-BFGS-B",
+        options={
+            "maxiter": max_iter,
+            "ftol": tol,
+            "gtol": 1e-7,
+            "eps": 1e-5
+        }
+    )
+    ```
+  </Step>
+
+  <Step title="Extract optimal parameters">
+    ```python
+    # Use best energy found during optimization
+    final_thetas = best_thetas if best_thetas is not None else res.x
+    
+    final_state = uccsd(
+        hf_state.clone(), 
+        final_thetas, 
+        singles, doubles, 
+        be, runner
+    )
+    
+    vqe_e = exact_eval(final_state.amplitudes)
+    ```
+  </Step>
+</Steps>
+
+## Energy Calculation
+
+### Exact Jordan-Wigner Energy
+
+From `molecular_sim.py:243-255`:
+
+```python
+class ExactJWEnergy:
+    def _evaluate(self, amps: torch.Tensor) -> float:
+        # Normalize amplitudes
+        amps = self._to_scalar(amps)  # (2^n, 2) [re, im]
+        n = float((amps[:, 0]**2 + amps[:, 1]**2).sum())
+        amps = amps / math.sqrt(n)
+        
+        # Start with nuclear repulsion
+        e = self.e_nuc
+        
+        # Apply each Pauli term
+        for coeff, pauli in self.paulis:
+            phi = self._apply(amps, pauli)
+            
+            # Inner product ⟨amps|phi⟩
+            inner_real = float(
+                (amps[:, 0]*phi[:, 0] + amps[:, 1]*phi[:, 1]).sum()
+            )
+            inner_imag = float(
+                (amps[:, 0]*phi[:, 1] - amps[:, 1]*phi[:, 0]).sum()
+            )
+            
+            e += coeff.real * inner_real - coeff.imag * inner_imag
+        
+        return e
+```
+
+### Pauli Operator Application
+
+```python
+def _apply(self, amps, pauli):
+    """Apply Pauli string to amplitudes."""
+    dim = 2 ** self.n_qubits
+    new = torch.zeros_like(amps)
+    
+    for k in range(dim):
+        cr, ci, kp = 1.0, 0.0, k
+        
+        for (qi, pc) in pauli:
+            bp = self.n_qubits - 1 - qi
+            bv = (k >> bp) & 1
+            
+            if pc == "Z":
+                s = 1 - 2*bv
+                cr *= s
+                ci *= s
+            elif pc == "X":
+                kp ^= (1 << bp)
+            elif pc == "Y":
+                kp ^= (1 << bp)
+                if bv == 0:
+                    cr, ci = -ci, cr
+                else:
+                    cr, ci = ci, -cr
+        
+        # Accumulate: new[kp] += (cr + i*ci) * amps[k]
+        new[kp, 0] += cr * amps[k, 0] - ci * amps[k, 1]
+        new[kp, 1] += cr * amps[k, 1] + ci * amps[k, 0]
+    
+    return new
+```
+
+## Example: H₂ Molecule
+
+<CodeGroup>
+```python Full VQE Run
+from quantum_computer import QuantumComputer, SimulatorConfig
+from molecular_sim import VQESolver, MOLECULES
+
+config = SimulatorConfig(
+    grid_size=16,
+    hidden_dim=32,
+    expansion_dim=64,
+    hamiltonian_checkpoint="hamiltonian.pth",
+    device="cpu"
+)
+
+qc = QuantumComputer(config)
+solver = VQESolver(qc, config)
+
+result = solver.run(
+    MOLECULES["H2"],
+    backend="hamiltonian",
+    max_iter=100,
+    tol=1e-8
+)
+
+print(f"Energy: {result.vqe_energy:.8f} Ha")
+print(f"Error: {abs(result.vqe_energy - result.fci_energy):.2e} Ha")
+print(f"Correlation: {result.correlation_energy_captured*100:.1f}%")
+```
+
+```python Manual UCCSD
+from molecular_sim import (
+    MOLECULES, ExactJWEnergy, uccsd, 
+    prepare_hf, _sd_indices
+)
+import numpy as np
+
+mol = MOLECULES["H2"]
+be = qc._backends["hamiltonian"]
+hf_state = prepare_hf(mol, qc._factory, be)
+
+exact_eval = ExactJWEnergy(mol, mol.n_qubits)
+singles, doubles = _sd_indices(mol.n_electrons, mol.n_qubits)
+
+# Test specific parameters
+theta = np.array([0.0, 0.0, 0.0, 0.0, -0.112, 0.0])
+
+state = uccsd(
+    hf_state.clone(), 
+    theta, 
+    singles, doubles, 
+    be, 
+    lambda c, b, s: qc.run(c, b)._state
+)
+
+energy = exact_eval(state.amplitudes)
+print(f"Energy: {energy:.8f} Ha")
+```
+</CodeGroup>
+
+## Performance Tips
+
+<AccordionGroup>
+  <Accordion title="Parameter initialization">
+    - Always run parameter scan (molecular_sim.py:431-444)
+    - Double excitation amplitude typically -0.1 to -0.2 for H₂
+    - Singles often start near zero
+  </Accordion>
+
+  <Accordion title="Optimization settings">
+    ```python
+    options = {
+        "maxiter": 200,      # Usually converges < 100 iterations
+        "ftol": 1e-8,        # Energy tolerance (Ha)
+        "gtol": 1e-7,        # Gradient tolerance
+        "eps": 1e-5          # Finite difference step
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Backend selection">
+    - `"hamiltonian"`: Fastest, uses spectral Hamiltonian operator
+    - `"schrodinger"`: Learned evolution network
+    - `"dirac"`: Relativistic effects (overkill for molecules)
+  </Accordion>
+</AccordionGroup>
+
+## Debugging
+
+```python
+# Enable detailed logging
+import logging
+logging.basicConfig(level=logging.INFO)
+
+# Check Hamiltonian construction
+from molecular_sim import build_jw_hamiltonian_of
+paulis, e_nuc, ok, hf_idx = build_jw_hamiltonian_of(mol)
+print(f"Pauli terms: {len(paulis)}")
+print(f"Nuclear repulsion: {e_nuc:.6f} Ha")
+print(f"HF index: {hf_idx}")
+print(f"Verification: {'PASS' if ok else 'FAIL'}")
+
+# Verify HF energy
+import torch
+hf_amps = torch.zeros((2**mol.n_qubits, 2))
+hf_amps[hf_idx, 0] = 1.0
+e_hf = exact_eval(hf_amps)
+print(f"E_HF(calc): {e_hf:.8f} Ha")
+print(f"E_HF(target): {mol.hf_energy:.8f} Ha")
+print(f"Difference: {abs(e_hf - mol.hf_energy):.2e} Ha")
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Molecular Simulation" icon="atom" href="/guides/molecular-simulation">
+    Quantum chemistry workflow
+  </Card>
+  <Card title="Stark Effect" icon="bolt" href="/guides/stark-effect">
+    Electric field effects using VQE
+  </Card>
+</CardGroup>

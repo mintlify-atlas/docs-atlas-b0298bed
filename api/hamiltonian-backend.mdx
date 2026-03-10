@@ -1,0 +1,220 @@
+---
+title: HamiltonianBackend
+description: Hamiltonian neural network physics backend for quantum amplitude evolution
+---
+
+## Overview
+
+The `HamiltonianBackend` is a physics backend that performs first-order Schrödinger time evolution using a learned Hamiltonian operator. It applies the spectral neural network to evolve quantum amplitudes according to:
+
+```
+ψ(t+dt) = ψ(t) - i·dt·H·ψ(t)
+```
+
+## Architecture
+
+The backend uses a `HamiltonianBackboneNet` neural network with the following structure:
+
+```
+Input: (G, G) spatial field
+  ↓
+Conv2d: 1 → hidden_dim channels
+  ↓
+GELU activation
+  ↓
+Spectral Layers (num_spectral_layers)
+  ↓
+Conv2d: hidden_dim → 1 channel
+  ↓
+Output: (G, G) H|ψ⟩
+```
+
+### Network Parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `grid_size` | 16 | Spatial grid resolution (G×G) |
+| `hidden_dim` | 32 | Hidden layer dimensionality |
+| `num_spectral_layers` | 2 | Number of spectral convolution layers |
+
+## Initialization
+
+### From SimulatorConfig (quantum_computer.py)
+
+```python
+from quantum_computer import SimulatorConfig, HamiltonianBackend
+
+config = SimulatorConfig(
+    grid_size=16,
+    hidden_dim=32,
+    num_spectral_layers=2,
+    hamiltonian_checkpoint="weights/latest.pth",
+    device="cuda"  # or "cpu"
+)
+
+backend = HamiltonianBackend(config)
+```
+
+### From FrameworkConfig (quantum_simulator.py)
+
+```python
+from quantum_simulator import FrameworkConfig, HamiltonianBackend
+
+config = FrameworkConfig(
+    grid_size=16,
+    hidden_dim=32,
+    num_spectral_layers=2,
+    hamiltonian_checkpoint="weights/latest.pth",
+    device="cpu"
+)
+
+backend = HamiltonianBackend(config)
+```
+
+## Checkpoint File
+
+**Default Path:** `weights/latest.pth`
+
+The checkpoint contains the trained weights for the Hamiltonian network:
+
+- **Expected keys:** `model_state_dict` (preferred) or direct state dict
+- **Architecture match required:** The checkpoint must match `grid_size`, `hidden_dim`, and `num_spectral_layers`
+- **Fallback behavior:** If checkpoint is missing or fails to load, the network uses random initialization with Laplacian-based physics
+
+## Methods
+
+### apply() / evolve_amplitude()
+
+```python
+def evolve_amplitude(self, amp: torch.Tensor, dt: float) -> torch.Tensor:
+    """
+    Evolve a single amplitude by time step dt.
+    
+    Args:
+        amp: (2, G, G) tensor [real_channel, imaginary_channel, x, y]
+        dt: Time step size
+    
+    Returns:
+        Evolved (2, G, G) amplitude tensor (normalized)
+    """
+```
+
+**Algorithm:**
+
+1. Extract real and imaginary components: `psi_r = amp[0]`, `psi_i = amp[1]`
+2. Apply Hamiltonian operator: `h_r = H(psi_r)`, `h_i = H(psi_i)`
+3. First-order time evolution:
+   - `new_r = psi_r + dt * h_i`
+   - `new_i = psi_i - dt * h_r`
+4. Normalize and return
+
+**Example:**
+
+```python
+import torch
+
+# Create a spatial wavefunction amplitude
+amp = torch.randn(2, 16, 16)  # (real, imag, x, y)
+amp = amp / torch.sqrt((amp**2).sum())  # normalize
+
+# Evolve by dt=0.01
+evolved_amp = backend.evolve_amplitude(amp, dt=0.01)
+```
+
+### apply_phase()
+
+```python
+def apply_phase(self, amp: torch.Tensor, phase_angle: float) -> torch.Tensor:
+    """
+    Apply global phase rotation e^(i·φ) to amplitude.
+    
+    Args:
+        amp: (2, G, G) amplitude tensor
+        phase_angle: Phase angle φ in radians
+    
+    Returns:
+        Phase-rotated amplitude
+    """
+```
+
+**Implementation:**
+
+```python
+c = cos(φ)
+s = sin(φ)
+new_real = c * amp[0] - s * amp[1]
+new_imag = s * amp[0] + c * amp[1]
+```
+
+## Technical Details
+
+### Spectral Convolution
+
+The `SpectralLayer` operates in Fourier space:
+
+1. **Forward FFT:** Real spatial field → complex frequency coefficients
+2. **Kernel application:** Complex multiplication with learned kernels
+3. **Inverse FFT:** Frequency domain → real spatial field
+
+This enables efficient long-range interactions and captures global field dynamics.
+
+### Laplacian Fallback
+
+If the neural network is unavailable, the backend uses analytical Laplacian evolution:
+
+```
+H = -∇² = -k_x² - k_y²
+```
+
+Computed via FFT with precomputed frequency grid.
+
+## Usage in Quantum Circuits
+
+```python
+from quantum_computer import QuantumComputer, QuantumCircuit, SimulatorConfig
+
+config = SimulatorConfig(
+    hamiltonian_checkpoint="weights/latest.pth"
+)
+qc = QuantumComputer(config)
+
+# Create a 2-qubit circuit
+circuit = QuantumCircuit(2)
+circuit.h(0).cnot(0, 1)  # Bell state
+
+# Run with Hamiltonian backend
+result = qc.run(circuit, backend="hamiltonian")
+print(result.most_probable_bitstring())
+```
+
+## Configuration Reference
+
+### SimulatorConfig Parameters
+
+```python
+class SimulatorConfig:
+    grid_size: int = 16                          # Spatial grid resolution
+    hidden_dim: int = 32                         # Network hidden dimension
+    num_spectral_layers: int = 2                 # Number of spectral layers
+    dt: float = 0.01                             # Default time step
+    normalization_eps: float = 1e-8              # Normalization epsilon
+    hamiltonian_checkpoint: str = "weights/latest.pth"  # Checkpoint path
+    device: str = "cuda" or "cpu"                # Computation device
+```
+
+## Performance Notes
+
+- **GPU acceleration:** Supports CUDA for faster evolution
+- **Memory usage:** Scales with `O(grid_size²)` per amplitude
+- **Computation:** Spectral operations are efficient via FFT
+
+## Source Code
+
+- **quantum_computer.py:** Lines 521-587
+- **quantum_simulator.py:** Lines 418-466
+
+## See Also
+
+- [SchrodingerBackend](/api/schrodinger-backend) - Full Schrödinger evolution network
+- [DiracBackend](/api/dirac-backend) - Relativistic spinor evolution
+- [IPhysicsBackend](/api/physics-backend) - Abstract backend interface
